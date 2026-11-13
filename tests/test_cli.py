@@ -36,3 +36,23 @@ def test_scan_jsonfile_dry_run(tmp_path, capsys):
     assert '"dry_run": true' in out
     # dry-run must not mutate the source file
     assert "2026-01-01T00:00:00" in data.read_text(encoding="utf-8")
+
+
+def test_ai_govern_candidates_only(tmp_path, capsys):
+    data = tmp_path / "m.json"
+    data.write_text(
+        '{"records":['
+        '{"id":"old","text":"实例地址是 http://192.0.2.10:8888","kind":"world",'
+        '"created_at":"2026-11-01T00:00:00Z"},'
+        '{"id":"new","text":"实例地址改为 http://192.0.2.10:9999","kind":"world",'
+        '"created_at":"2026-11-02T00:00:00Z"}]}',
+        encoding="utf-8",
+    )
+    rc = main([
+        "ai-govern", "--adapter", "jsonfile", "--jsonfile", str(data),
+        "--candidates-only", "--runs-dir", str(tmp_path / "runs"),
+    ])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "candidate pairs" in out
+    assert "192.0.2.10" in out

@@ -145,6 +145,10 @@ class ScanReport:
     policy_path: Optional[str] = None
     finished_at: Optional[datetime] = None
     run_file: Optional[str] = None
+    mode: str = "rule"
+    ai: Dict[str, Any] = field(default_factory=dict)
+    verification: Dict[str, Any] = field(default_factory=dict)
+    rolled_back: bool = False
 
     def counts(self) -> Dict[str, int]:
         out: Dict[str, int] = {}
@@ -165,5 +169,9 @@ class ScanReport:
             "counts": self.counts(),
             "warnings": list(self.warnings),
             "run_file": self.run_file,
+            "mode": self.mode,
+            "ai": dict(self.ai),
+            "verification": dict(self.verification),
+            "rolled_back": self.rolled_back,
             "actions": [a.to_dict() for a in self.actions],
         }

@@ -13,11 +13,13 @@ class Ledger:
         self.runs_dir = Path(runs_dir)
         self.runs_dir.mkdir(parents=True, exist_ok=True)
 
-    def write_run(self, report) -> Path:
+    def write_run(self, report, append_actions: bool = True) -> Path:
         payload = report.to_dict()
         stamp = report.started_at.strftime("%Y%m%d-%H%M%S")
         path = self.runs_dir / f"{stamp}-{report.run_id}.json"
         path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        if not append_actions:
+            return path
         with (self.runs_dir / "ledger.jsonl").open("a", encoding="utf-8") as fh:
             for action in report.actions:
                 fh.write(

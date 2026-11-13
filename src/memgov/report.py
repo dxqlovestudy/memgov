@@ -23,6 +23,35 @@ def render_markdown(report: ScanReport, limit: int = 100) -> str:
     for key, value in sorted(report.counts().items()):
         lines.append(f"| {key} | {value} |")
 
+    if report.mode == "ai":
+        ai = report.ai or {}
+        lines += [
+            "",
+            "## AI judge",
+            "",
+            f"- model: `{ai.get('model', '-')}` (prompt `{ai.get('prompt_version', '-')}`)",
+            f"- candidate pairs: {ai.get('candidate_pairs', 0)}; judged: {ai.get('judged_pairs', 0)}",
+            f"- confidence threshold: {ai.get('confidence_threshold', '-')}",
+            f"- calls: {ai.get('calls', 0)} (cached {ai.get('cached', 0)}); "
+            f"tokens: {ai.get('total_tokens', 0)}",
+        ]
+        if ai.get("rejected"):
+            lines.append(f"- rejected: `{ai['rejected']}`")
+        if ai.get("errors"):
+            lines.append(f"- errors: {len(ai['errors'])} (see run JSON)")
+
+    if report.verification:
+        v = report.verification
+        lines += [
+            "",
+            "## Forgetting verification",
+            "",
+            f"- checked: {v.get('checked', 0)}; failures: {v.get('failures', 0)}; "
+            f"failure rate: {v.get('failure_rate', 0):.2f}",
+        ]
+    if report.rolled_back:
+        lines += ["", "> **auto-rollback triggered**: applied actions were restored."]
+
     applied = sum(1 for a in report.actions if a.applied)
     errors = [a for a in report.actions if a.error]
     lines += [

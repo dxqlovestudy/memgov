@@ -90,6 +90,40 @@ memgov scan --adapter hindsight \
 `scan` is a **dry-run** unless you pass `--apply`. Hindsight additionally requires
 `MEMGOV_ALLOW_WRITE=1`, so two independent switches must agree before anything mutates.
 
+## AI governance (full-auto, opt-in)
+
+The core engine stays deterministic. A separate `ai-govern` command adds an
+OpenAI-compatible judge for the cases rules cannot see: paraphrased duplicates,
+implicit supersession, and contradictory facts.
+
+```bash
+export MEMGOV_AI_BASE_URL="https://your-gateway/v1"
+export MEMGOV_AI_MODEL="deepseek-flash"
+export MEMGOV_AI_API_KEY="..."
+
+# candidates only: no model calls, no writes
+memgov ai-govern --adapter hindsight --base-url http://127.0.0.1:8888 --bank dxq \
+  --candidates-only --max-pairs 20
+
+# full-auto: model decides, apply, verify, auto-rollback on failure
+memgov ai-govern --adapter hindsight --base-url http://127.0.0.1:8888 --bank dxq \
+  --max-pairs 50 --max-invalidations 10 --confidence 0.85 --apply
+```
+
+The model is a proposer whose output is validated before it can become an action:
+
+- strict JSON schema; ids must match the pair;
+- every `evidence.quote` must be an exact substring of the referenced record;
+- confidence threshold (default 0.85);
+- keep-newer unless the older record has `authority:official`;
+- only `invalidate` (reversible), never delete;
+- per-run caps (`--max-invalidations`, `--max-pairs`);
+- post-apply forgetting verification; auto-rollback if the failure rate is too high.
+
+Prompt and gates: [docs/ai-governance.md](docs/ai-governance.md).
+Measured: one real supersede pair → 0.97–0.98 confidence, 839–849 tokens; three
+related-but-not-conflicting pairs → all `keep_both`, 3,615 tokens.
+
 ## Policies
 
 ```yaml
@@ -149,6 +183,7 @@ Adding a backend means implementing four methods: `list_memories`, `apply`, `res
 
 ```text
 memgov scan              evaluate policies (dry-run by default; --apply to mutate)
+memgov ai-govern         full-auto AI judgement: candidates -> model -> apply -> verify
 memgov report <run>      render a stored run
 memgov rollback <run>    restore memories invalidated by a run (--apply)
 memgov verify-forgetting <run>  measure whether invalidated facts still come back
@@ -187,8 +222,9 @@ The forgetting metric follows the *active forgetting* dimension of
 
 ## Status
 
-`v0.1.0` — alpha. The engine, adapters, ledger and CLI are functional and covered by
-tests; the policy set is intentionally small. Not production-hardened.
+`v0.2.0` — alpha. The engine, adapters, ledger, CLI and full-auto AI judge are
+functional and covered by tests; the policy set is intentionally small. Not
+production-hardened.
 
 Roadmap:
 
@@ -196,7 +232,9 @@ Roadmap:
 - [ ] Mem0 and Graphiti adapters
 - [ ] scheduled service mode with per-bank policies
 - [ ] OpenTelemetry metrics
-- [ ] conflict detection between contradictory facts (currently out of scope)
+- [x] AI-assisted conflict/supersede/duplicate judgement (`ai-govern`, full-auto)
+- [ ] human approval queue (optional mode)
+- [ ] richer conflict evidence (quote spans, authority labels)
 
 ## 中文简介
 

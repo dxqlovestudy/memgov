@@ -12,6 +12,8 @@ import yaml
 from . import __version__
 from .adapters import HindsightAdapter, JsonFileAdapter, MemoryAdapter
 from .adapters.base import Adapter
+from .ai import AIConfig
+from .ai_governor import AIGovernor
 from .engine import Engine
 from .ledger import Ledger, verify_forgetting
 from .models import MemoryRecord
@@ -150,6 +152,12 @@ def cmd_report(args: argparse.Namespace) -> int:
     print(f"- counts: {json.dumps(run.get('counts') or {}, ensure_ascii=False)}")
     actions = run.get("actions") or []
     print(f"- actions: {len(actions)}, applied: {sum(1 for a in actions if a.get('applied'))}")
+    if run.get("mode") == "ai":
+        print(f"- ai: {json.dumps(run.get('ai') or {}, ensure_ascii=False)}")
+    if run.get("verification"):
+        print(f"- verification: {json.dumps(run['verification'], ensure_ascii=False)}")
+    if run.get("rolled_back"):
+        print("- rolled_back: yes")
     if run.get("warnings"):
         print("\n## Warnings\n")
         for w in run["warnings"]:
@@ -192,6 +200,59 @@ def cmd_verify(args: argparse.Namespace) -> int:
     )
     print(json.dumps(result, ensure_ascii=False, indent=2))
     return 0 if result["failures"] == 0 else 1
+
+
+def cmd_ai_govern(args: argparse.Namespace) -> int:
+    base_url = args.ai_base_url or os.environ.get("MEMGOV_AI_BASE_URL") or os.environ.get("OPENAI_BASE_URL")
+    api_key = os.environ.get("MEMGOV_AI_API_KEY") or os.environ.get("OPENAI_API_KEY") or ""
+    model = args.ai_model or os.environ.get("MEMGOV_AI_MODEL") or ""
+    if not args.candidates_only:
+        if not base_url or not model:
+            raise SystemExit("--ai-base-url and --ai-model (or env) are required")
+        if not api_key:
+            raise SystemExit("MEMGOV_AI_API_KEY or OPENAI_API_KEY is required")
+
+    cache_path = None
+    if not args.no_cache:
+        cache_path = args.ai_cache or os.path.join(args.runs_dir, "ai-cache.json")
+
+    config = AIConfig(
+        base_url=base_url or "http://127.0.0.1:1",
+        api_key=api_key,
+        model=model or "none",
+        confidence_threshold=args.confidence,
+        max_pairs=args.max_pairs,
+        max_invalidations=args.max_invalidations,
+        min_candidate_score=args.min_candidate_score,
+        auto_rollback=args.auto_rollback,
+        verify_failure_threshold=args.verify_threshold,
+        cache_path=cache_path,
+    )
+    ledger = Ledger(args.runs_dir)
+    adapter = build_adapter(args, write=args.apply)
+    governor = AIGovernor(
+        adapter=adapter,
+        config=config,
+        ledger=ledger,
+        dry_run=not args.apply,
+        max_records=args.limit,
+        candidates_only=args.candidates_only,
+    )
+    report = governor.run()
+    if args.candidates_only:
+        from .ai_governor import summarize_candidates
+
+        print(summarize_candidates(report))
+    elif args.json:
+        print(json.dumps({"summary": summary(report), "run_file": report.run_file,
+                          "ai": report.ai, "verification": report.verification,
+                          "rolled_back": report.rolled_back}, ensure_ascii=False, indent=2))
+    else:
+        print(render_markdown(report))
+        print(f"run file: {report.run_file}")
+        if not args.apply and report.actions:
+            print("dry-run only; re-run with --apply for full-auto governance")
+    return 0
 
 
 def cmd_demo(args: argparse.Namespace) -> int:
@@ -261,6 +322,25 @@ def main(argv: Optional[List[str]] = None) -> int:
     p_verify.add_argument("--top", type=int, default=5)
     p_verify.add_argument("--min-similarity", type=float, default=0.9)
     p_verify.set_defaults(func=cmd_verify)
+
+    p_ai = sub.add_parser("ai-govern", help="full-AI governance: candidates -> model -> actions")
+    add_common(p_ai)
+    add_adapter_args(p_ai)
+    p_ai.add_argument("--limit", type=int, default=None)
+    p_ai.add_argument("--apply", action="store_true")
+    p_ai.add_argument("--ai-base-url")
+    p_ai.add_argument("--ai-model")
+    p_ai.add_argument("--ai-cache")
+    p_ai.add_argument("--no-cache", action="store_true")
+    p_ai.add_argument("--confidence", type=float, default=0.85)
+    p_ai.add_argument("--max-pairs", type=int, default=100)
+    p_ai.add_argument("--max-invalidations", type=int, default=10)
+    p_ai.add_argument("--min-candidate-score", type=float, default=0.22)
+    p_ai.add_argument("--auto-rollback", dest="auto_rollback", action="store_true", default=True)
+    p_ai.add_argument("--no-auto-rollback", dest="auto_rollback", action="store_false")
+    p_ai.add_argument("--verify-threshold", type=float, default=0.1)
+    p_ai.add_argument("--candidates-only", action="store_true")
+    p_ai.set_defaults(func=cmd_ai_govern)
 
     p_demo = sub.add_parser("demo", help="run the built-in demo")
     p_demo.add_argument("--runs-dir", default="runs")
