@@ -56,3 +56,15 @@ def test_ai_govern_candidates_only(tmp_path, capsys):
     out = capsys.readouterr().out
     assert "candidate pairs" in out
     assert "192.0.2.10" in out
+
+
+def test_hindsight_apply_requires_env(tmp_path, monkeypatch):
+    import pytest
+
+    monkeypatch.delenv("MEMGOV_ALLOW_WRITE", raising=False)
+    with pytest.raises(SystemExit):
+        main([
+            "scan", "--adapter", "hindsight", "--base-url", "http://127.0.0.1:1",
+            "--bank", "x", "--policy", str(tmp_path / "missing.yaml"), "--apply",
+            "--runs-dir", str(tmp_path),
+        ])

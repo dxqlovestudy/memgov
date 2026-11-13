@@ -21,6 +21,18 @@ from .policies import build_policies
 from .report import render_markdown, summary
 
 
+def require_write_env(args: argparse.Namespace) -> None:
+    """Hindsight writes need a second, process-level switch besides --apply."""
+    if (
+        getattr(args, "apply", False)
+        and getattr(args, "adapter", None) == "hindsight"
+        and os.environ.get("MEMGOV_ALLOW_WRITE") != "1"
+    ):
+        raise SystemExit(
+            "refusing to mutate Hindsight: set MEMGOV_ALLOW_WRITE=1 in addition to --apply"
+        )
+
+
 def build_adapter(args: argparse.Namespace, write: bool = False) -> Adapter:
     if args.adapter == "memory":
         return MemoryAdapter(demo_records())
@@ -115,6 +127,7 @@ def add_adapter_args(p: argparse.ArgumentParser) -> None:
 
 
 def cmd_scan(args: argparse.Namespace) -> int:
+    require_write_env(args)
     cfg = load_policy(args.policy)
     policies = build_policies(cfg)
     if not policies:
@@ -166,6 +179,7 @@ def cmd_report(args: argparse.Namespace) -> int:
 
 
 def cmd_rollback(args: argparse.Namespace) -> int:
+    require_write_env(args)
     run = Ledger.load_run(args.run)
     adapter = build_adapter(args, write=args.apply)
     todo = [
@@ -203,6 +217,7 @@ def cmd_verify(args: argparse.Namespace) -> int:
 
 
 def cmd_ai_govern(args: argparse.Namespace) -> int:
+    require_write_env(args)
     base_url = args.ai_base_url or os.environ.get("MEMGOV_AI_BASE_URL") or os.environ.get("OPENAI_BASE_URL")
     api_key = os.environ.get("MEMGOV_AI_API_KEY") or os.environ.get("OPENAI_API_KEY") or ""
     model = args.ai_model or os.environ.get("MEMGOV_AI_MODEL") or ""
