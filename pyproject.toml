@@ -9,7 +9,7 @@ description = "Backend-agnostic memory governance engine for AI agents: TTL, sup
 readme = "README.md"
 requires-python = ">=3.9"
 license = { text = "MIT" }
-authors = [{ name = "YingNing", email = "59612604+dxqlovestudy@users.noreply.github.com" }]
+authors = [{ name = "dxqlovestudy", email = "59612604+dxqlovestudy@users.noreply.github.com" }]
 keywords = ["ai-agents", "memory", "governance", "lifecycle", "ttl", "deduplication"]
 classifiers = [
   "Programming Language :: Python :: 3",
