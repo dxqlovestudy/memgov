@@ -8,7 +8,7 @@
   exceeds a threshold.
 - Prompt `conflict-v1` and content-addressed decision cache.
 - Candidate extraction by anchors (URL/IP/table/file/MR/quoted terms) + bigram blocking.
-- 53 tests; real-gateway probe: 1 supersede pair -> 0.97-0.98 confidence, 839-849 tokens.
+- 55 tests; real-gateway probe: 1 supersede pair -> 0.97-0.98 confidence, 839-849 tokens.
 
 ## 0.1.0 (2026-11-13)
 

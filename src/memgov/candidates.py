@@ -120,7 +120,9 @@ def candidate_pairs(
             shared = sorted(anchors[i] & anchors[j])
             text_score = _set_jaccard(grams[i], grams[j])
             anchor_score = len(shared) / max(1, len(anchors[i] | anchors[j]))
-            score = max(text_score, anchor_score)
+            # Weighted blend: textual overlap ranks duplicates/rephrasings first,
+            # while an anchor-only pair still qualifies as a conflict candidate.
+            score = 0.75 * text_score + 0.25 * anchor_score
             if lengths[i] and lengths[j]:
                 ratio = min(lengths[i], lengths[j]) / max(lengths[i], lengths[j])
                 if ratio < 0.25:

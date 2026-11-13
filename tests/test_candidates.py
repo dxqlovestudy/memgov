@@ -54,3 +54,12 @@ def test_same_kind_only():
     b = MemoryRecord(id="b", text="同一主题 http://192.0.2.10:8888", kind="experience")
     assert candidate_pairs([a, b], same_kind_only=True) == []
     assert len(candidate_pairs([a, b], same_kind_only=False)) == 1
+
+
+def test_textual_overlap_outranks_anchor_only():
+    a = MemoryRecord(id="a", text="同一主题 http://192.0.2.10:8888 规则一", kind="world")
+    b = MemoryRecord(id="b", text="同一主题 http://192.0.2.10:8888 规则一。", kind="world")
+    c = MemoryRecord(id="c", text="完全不同的内容但提到 http://192.0.2.10:8888", kind="world")
+    pairs = candidate_pairs([a, b, c], max_pairs=3, min_score=0.2)
+    assert pairs[0].key() == "a|b"
+    assert pairs[0].score > pairs[1].score

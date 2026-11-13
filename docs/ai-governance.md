@@ -82,6 +82,10 @@ memgov ai-govern --adapter hindsight --base-url http://127.0.0.1:8888 --bank dxq
 `--no-cache` disables the content-addressed cache. By default the cache lives at
 `runs/ai-cache.json`, so the same pair is never paid for twice.
 
+Candidate score = `0.75 ×` character-bigram Jaccard `+ 0.25 ×` anchor overlap. Textual
+overlap ranks duplicates and rephrasings first; an anchor-only pair (same IP, table, file
+or MR) still qualifies as a conflict candidate.
+
 ## Measured (2026-11-13, deepseek-flash via company gateway)
 
 | Case | Result |
