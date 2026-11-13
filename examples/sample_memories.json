@@ -1,0 +1,53 @@
+{
+  "records": [
+    {
+      "id": "m-pref-1",
+      "text": "任何 git push 必须逐次征得用户同意。",
+      "kind": "world",
+      "tags": ["preference", "git"],
+      "created_at": "2026-11-12T09:00:00Z",
+      "importance": 0.9
+    },
+    {
+      "id": "m-addr-old",
+      "text": "Hindsight 实例地址为 http://192.0.2.10:8888。",
+      "kind": "world",
+      "tags": ["env"],
+      "created_at": "2026-11-09T01:00:00Z",
+      "importance": 0.6
+    },
+    {
+      "id": "m-addr-new",
+      "text": "Hindsight 实例地址为 http://192.0.2.20:8888。",
+      "kind": "world",
+      "tags": ["env"],
+      "created_at": "2026-11-11T09:00:00Z",
+      "importance": 0.9,
+      "metadata": { "supersedes": ["m-addr-old"] }
+    },
+    {
+      "id": "m-dup-a",
+      "text": "交付前必须跑全量 mvn -o test 并附原始输出。",
+      "kind": "world",
+      "tags": ["delivery"],
+      "created_at": "2026-11-12T08:00:00Z",
+      "importance": 0.7
+    },
+    {
+      "id": "m-dup-b",
+      "text": "交付前必须跑全量 mvn -o test，并附原始输出",
+      "kind": "world",
+      "tags": ["delivery"],
+      "created_at": "2026-11-10T08:00:00Z",
+      "importance": 0.5
+    },
+    {
+      "id": "m-task-old",
+      "text": "正在等 CI 跑完再合并 PR。",
+      "kind": "experience",
+      "tags": ["task", "ephemeral"],
+      "created_at": "2026-01-01T00:00:00Z",
+      "importance": 0.3
+    }
+  ]
+}

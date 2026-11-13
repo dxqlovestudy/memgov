@@ -1,0 +1,45 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "memgov"
+version = "0.1.0"
+description = "Backend-agnostic memory governance engine for AI agents: TTL, supersede, dedup, active-forgetting verification, audit ledger."
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+authors = [{ name = "YingNing", email = "59612604+dxqlovestudy@users.noreply.github.com" }]
+keywords = ["ai-agents", "memory", "governance", "lifecycle", "ttl", "deduplication"]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: OS Independent",
+  "Topic :: Software Development :: Libraries :: Python Modules",
+]
+dependencies = ["PyYAML>=6.0"]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0", "ruff>=0.6"]
+
+[project.urls]
+Homepage = "https://github.com/dxqlovestudy/memgov"
+Issues = "https://github.com/dxqlovestudy/memgov/issues"
+
+[project.scripts]
+memgov = "memgov.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 100
+target-version = "py39"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B"]
+ignore = ["E501"]

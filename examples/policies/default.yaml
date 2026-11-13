@@ -1,0 +1,42 @@
+version: 1
+
+# Policies run top-down. A memory claimed by an earlier policy is never touched
+# by a later one; conflicts are reported as warnings.
+policies:
+  - name: ttl
+    enabled: true
+    rules:
+      # Tags are backend-neutral: adapters map their native labels to tags.
+      - tag: ephemeral
+        max_age_days: 7
+      - tag_prefix: "task:"
+        max_age_days: 14
+      - kind: experience
+        max_age_days: 90
+
+  # Only explicit replacement claims are honoured (metadata.supersedes /
+  # metadata.replaces / tag "supersedes:<id>"). Similarity is never used here.
+  - name: supersede
+    enabled: true
+
+  - name: dedup
+    enabled: true
+    similarity: 0.95
+    # Character-bigram signature blocking keeps near-duplicate detection
+    # near-linear on large banks. Buckets above max_block_size are skipped
+    # (exact duplicates are still collapsed).
+    signature_size: 16
+    max_block_size: 2000
+    max_candidates: 300
+
+  # Disabled by default: most backends do not expose importance or usage signals.
+  - name: importance
+    enabled: false
+    half_life_days: 90
+    archive_below: 0.15
+    kinds: [world, experience]
+
+  - name: scope_limit
+    enabled: false
+    max_per_scope: 500
+    tag_prefix: "scope:"
