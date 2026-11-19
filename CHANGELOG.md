@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.3.0 (2026-11-19)
+
+- State-transition governance: `memgov ai-transition` with `transition-v1`.
+- Scope/entity candidate expansion (aliases, source-vs-destination entities), not text similarity.
+- Strict verdict contract (`obsolete_current` / `historical_ok` / `unrelated` / `uncertain`) with
+  evidence-substring, scope, confidence, older-than-transition, authority and per-run caps.
+- Dry-run by default; same ledger, verification and rollback path as `ai-govern`.
+- 61 tests; real-bank dry-run: 180 transitions / 570 candidates; targeted T -> 2 invalidations,
+  0 applied.
+
 ## 0.2.0 (2026-11-13)
 
 - Full-auto AI governance: `memgov ai-govern` with candidate blocking, OpenAI-compatible

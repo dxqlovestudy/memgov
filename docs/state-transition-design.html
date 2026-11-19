@@ -1,0 +1,473 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>记忆状态迁移治理 · 总设计（v0.1 · dry-run 已实现）</title>
+<style>
+  :root{
+    --bg:#f5f6f8; --card:#ffffff; --fg:#111827; --muted:#6b7280; --line:#e5e7eb;
+    --accent:#2563eb; --accent-soft:#eef2ff; --ok:#15803d; --ok-soft:#e8f7ee;
+    --warn:#b45309; --warn-soft:#fff5e6; --bad:#b91c1c; --bad-soft:#fdecec;
+    --code:#0f172a; --code-fg:#e5e7eb; --shadow:0 1px 2px rgba(16,24,40,.05);
+  }
+  @media (prefers-color-scheme: dark){
+    :root{--bg:#0f1115;--card:#171a21;--fg:#e5e7eb;--muted:#9ca3af;--line:#252a33;
+      --accent:#7aa2ff;--accent-soft:#1b2333;--ok:#3ecf8e;--ok-soft:#12291f;
+      --warn:#e6b450;--warn-soft:#2a2314;--bad:#ef5b5b;--bad-soft:#2a1517;
+      --code:#0b0e14;--code-fg:#e5e7eb;--shadow:none;}
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{margin:0;background:var(--bg);color:var(--fg);
+    font:15px/1.75 -apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",Arial,sans-serif}
+  a{color:var(--accent);text-decoration:none}
+  .layout{display:grid;grid-template-columns:250px minmax(0,1fr);gap:28px;
+    max-width:1280px;margin:0 auto;padding:28px 22px 70px}
+  /* sidebar */
+  aside{position:sticky;top:24px;align-self:start;max-height:calc(100vh - 48px);overflow:auto}
+  .brand{display:flex;align-items:center;gap:10px;margin-bottom:16px}
+  .mark{width:34px;height:34px;border-radius:9px;background:var(--accent);color:#fff;
+    display:grid;place-items:center;font-weight:800;font-size:15px}
+  .brand b{font-size:14px;display:block;line-height:1.3}
+  .brand span{font-size:12px;color:var(--muted)}
+  nav{font-size:13px}
+  nav a{display:block;padding:5px 9px;border-radius:7px;color:var(--muted);border-left:2px solid transparent}
+  nav a:hover{background:var(--accent-soft);color:var(--accent)}
+  nav a.sub{padding-left:20px;font-size:12.5px}
+  .sidebox{margin-top:18px;border:1px solid var(--line);background:var(--card);border-radius:10px;padding:10px 12px;
+    font-size:12px;color:var(--muted)}
+  .sidebox b{color:var(--fg)}
+  /* main */
+  main{min-width:0}
+  .hero{border:1px solid var(--line);background:var(--card);border-radius:16px;padding:26px 28px;box-shadow:var(--shadow)}
+  .kicker{font-size:12px;letter-spacing:.08em;color:var(--accent);font-weight:700;text-transform:uppercase}
+  h1{font-size:30px;line-height:1.25;margin:8px 0 8px;letter-spacing:-.01em}
+  .lede{font-size:16px;color:var(--muted);margin:0;max-width:860px}
+  .meta{display:flex;flex-wrap:wrap;gap:8px;margin-top:16px}
+  .pill{font-size:12px;border:1px solid var(--line);border-radius:999px;padding:4px 10px;color:var(--muted);background:var(--bg)}
+  .pill.draft{color:var(--warn);background:var(--warn-soft);border-color:transparent;font-weight:600}
+  .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:18px 0 4px}
+  .stat{border:1px solid var(--line);border-radius:12px;background:var(--bg);padding:12px 14px}
+  .stat b{display:block;font-size:24px;line-height:1.2;letter-spacing:-.02em}
+  .stat span{font-size:12px;color:var(--muted)}
+  .stat.bad b{color:var(--bad)} .stat.warn b{color:var(--warn)} .stat.ok b{color:var(--ok)}
+  section{margin-top:34px}
+  h2{font-size:21px;margin:0 0 6px;letter-spacing:-.01em;scroll-margin-top:20px}
+  h2 .hint{font-size:12px;color:var(--muted);font-weight:400;margin-left:8px}
+  h3{font-size:16px;margin:22px 0 8px}
+  p{margin:8px 0}
+  .box{border:1px solid var(--line);background:var(--card);border-radius:12px;padding:16px 18px;box-shadow:var(--shadow)}
+  .box + .box{margin-top:12px}
+  .callout{border-left:4px solid var(--accent);background:var(--accent-soft);border-radius:8px;padding:12px 16px;margin:12px 0}
+  .callout.bad{border-left-color:var(--bad);background:var(--bad-soft)}
+  .callout.ok{border-left-color:var(--ok);background:var(--ok-soft)}
+  .callout b{font-weight:700}
+  .grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  .tile{border:1px solid var(--line);background:var(--card);border-radius:12px;padding:14px 16px}
+  .tile .t{font-size:12px;color:var(--muted);margin-bottom:4px}
+  .tile b{font-size:15px}
+  .tile p{font-size:13.5px;color:var(--muted);margin:6px 0 0}
+  .tablewrap{overflow-x:auto;border:1px solid var(--line);border-radius:12px;background:var(--card);margin:12px 0;-webkit-overflow-scrolling:touch}
+  .tablewrap table{border:0;border-radius:0;margin:0;min-width:620px}
+  table{width:100%;border-collapse:separate;border-spacing:0;border:1px solid var(--line);
+    border-radius:12px;overflow:hidden;background:var(--card);margin:12px 0}
+  th,td{padding:9px 12px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top;font-size:13.5px}
+  th{font-size:12px;color:var(--muted);font-weight:600;background:color-mix(in srgb,var(--card) 86%,var(--bg))}
+  tr:last-child td{border-bottom:none}
+  td.hl{background:var(--bad-soft)}
+  td.hl-ok{background:var(--ok-soft)}
+  .badge{display:inline-block;border-radius:999px;padding:1px 8px;font-size:11.5px;font-weight:700;white-space:nowrap}
+  .badge.bad{color:var(--bad);background:var(--bad-soft)}
+  .badge.ok{color:var(--ok);background:var(--ok-soft)}
+  .badge.warn{color:var(--warn);background:var(--warn-soft)}
+  .badge.gray{color:var(--muted);background:var(--bg)}
+  code{font:12.5px/1.5 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+    background:color-mix(in srgb,var(--card) 70%,var(--bg));border-radius:5px;padding:1px 5px}
+  pre{background:var(--code);color:var(--code-fg);border-radius:10px;padding:14px 16px;overflow:auto;
+    font:12.5px/1.65 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;white-space:pre-wrap;word-break:break-word}
+  pre .c{color:#93a4c3}
+  .steps{display:grid;grid-template-columns:1fr 1fr;gap:12px;counter-reset:s}
+  .step{position:relative;border:1px solid var(--line);background:var(--card);border-radius:12px;padding:13px 15px 13px 46px}
+  .step:before{counter-increment:s;content:counter(s);position:absolute;left:14px;top:13px;width:22px;height:22px;
+    border-radius:50%;background:var(--accent);color:#fff;font-size:12px;font-weight:800;display:grid;place-items:center}
+  .step b{display:block;font-size:14px;margin-bottom:2px}
+  .step span{font-size:13px;color:var(--muted)}
+  .decision{display:grid;grid-template-columns:repeat(5,1fr);gap:10px}
+  .dcard{border:1px solid var(--line);background:var(--card);border-radius:12px;padding:13px 14px}
+  .dcard .n{font-size:11px;color:var(--muted);font-weight:700;letter-spacing:.06em}
+  .dcard b{display:block;font-size:13.5px;margin:4px 0 6px;line-height:1.45}
+  .dcard p{font-size:12.5px;color:var(--muted);margin:0}
+  .rec{display:inline-block;margin-top:8px;font-size:11px;font-weight:700;color:var(--ok);background:var(--ok-soft);
+    border-radius:999px;padding:1px 8px}
+  .footer{margin-top:38px;border-top:1px solid var(--line);padding-top:14px;color:var(--muted);font-size:12px;
+    display:flex;flex-wrap:wrap;gap:14px}
+  @media (max-width:1050px){
+    .layout{grid-template-columns:1fr;gap:16px}
+    aside{position:static;max-height:none;order:2}
+    nav{columns:2}
+    .stats{grid-template-columns:1fr 1fr}
+    .decision{grid-template-columns:1fr 1fr}
+  }
+  @media (max-width:720px){
+    h1{font-size:24px}.grid3,.grid2,.steps,.decision{grid-template-columns:1fr}
+    nav{columns:1}.layout{padding:18px 14px 50px}
+  }
+  @media print{
+    aside{display:none}.layout{display:block;max-width:none;padding:0}
+    body{background:#fff}.box,.hero,table,.step,.tile,.dcard{box-shadow:none}
+    section{break-inside:avoid}
+  }
+</style>
+</head>
+<body>
+<div class="layout">
+<aside>
+  <div class="brand">
+    <div class="mark">M</div>
+    <div><b>memgov · 设计文档</b><span>状态迁移治理 v0.3</span></div>
+  </div>
+  <nav>
+    <a href="#summary">摘要</a>
+    <a href="#evidence">一、问题复现</a>
+    <a href="#rootcause">二、根因</a>
+    <a href="#goals">三、目标与非目标</a>
+    <a href="#model">四、数据模型</a>
+    <a href="#pipeline">五、处理流水线</a>
+    <a href="#candidates">六、候选扩展</a>
+    <a href="#prompt">七、判定契约与提示词</a>
+    <a href="#safety">八、安全与回滚</a>
+    <a href="#mapping">九、与现有模块</a>
+    <a href="#acceptance">十、验收标准</a>
+    <a href="#phases">十一、分阶段实施</a>
+    <a href="#decisions">十二、待拍板</a>
+    <a href="#risks">十三、风险</a>
+    <a href="#appendix">附录：原始输出</a>
+  </nav>
+  <div class="sidebox">
+    <b>状态：dry-run 已实现</b><br>
+    版本 0.1 · 2026-11-13<br>
+    P1/P2 已落地；P3 apply 未执行。<br><br>
+    目标仓库：<code>dxqlovestudy/memgov</code><br>
+    Agent 版：<code>docs/state-transition-design.md</code>
+  </div>
+</aside>
+
+<main>
+  <div class="hero">
+    <div class="kicker">Design Draft · Memory Governance</div>
+    <h1>记忆状态迁移治理 · 总设计</h1>
+    <p class="lede">一条新事实宣告「VM 联调环境已下线」之后，所有「VM 仍是当前入口 / 位于 VM / 在役」的旧断言应该一起失效。现有 memgov 处理不了这种一对多的状态迁移；本设计补上这一层。</p>
+    <div class="meta">
+      <span class="pill draft">dry-run 已实现 · 未 apply</span>
+      <span class="pill">v0.1 · 2026-11-13</span>
+      <span class="pill">目标：memgov v0.3 <code>ai-transition</code></span>
+      <span class="pill">不改现有规则策略</span>
+    </div>
+    <div class="stats">
+      <div class="stat"><b>94</b><span>会话记忆条数</span></div>
+      <div class="stat bad"><b>0.925</b><span>旧口径仍被召回（第 3 位）</span></div>
+      <div class="stat bad"><b>0</b><span>旧/新口径的候选配对</span></div>
+      <div class="stat warn"><b>2,748</b><span>朴素正则的误伤候选</span></div>
+    </div>
+  </div>
+
+  <section id="summary">
+    <h2>摘要 <span class="hint">一句话结论</span></h2>
+    <div class="callout">
+      <b>问题不是「AI 判错」，而是「AI 没机会判」。</b>旧事实写 IP、新事实写域名，没有共同锚点，文本相似度也不够——现有两两配对根本不会把它们放在一起。状态迁移需要按“实体 scope”反查，而不是按相似度找。
+    </div>
+    <div class="grid3">
+      <div class="tile"><div class="t">现有能力</div><b>显式取代 / 重复 / 两两冲突</b><p>ttl、supersede、dedup、importance、scope_limit 与 ai-govern。</p></div>
+      <div class="tile"><div class="t">缺口</div><b>一对多状态迁移</b><p>一条迁移事实应让多条旧断言一起过时，现有流程没有这个方向。</p></div>
+      <div class="tile"><div class="t">新增</div><b>ai-transition</b><p>迁移识别 → scope 反查 → transition-v1 判官 → 失效 / 历史标记。</p></div>
+    </div>
+  </section>
+
+  <section id="evidence">
+    <h2>一、问题复现 <span class="hint">真实会话 · 真实召回</span></h2>
+    <p>会话 <code>local-fa7570…0734d</code>：94 条记忆，2026-11-12 08:15 创建，11-13 03:10 仍在写入。查询「合伙人端联调入口地址是什么」，前 6 条：</p>
+    <div class="tablewrap"><table>
+      <tr><th style="width:80px">reranker</th><th style="width:110px">记忆 ID</th><th>内容</th><th style="width:110px">性质</th></tr>
+      <tr><td>0.960</td><td><code>0b92f28e</code></td><td>用户确定联调统一走 dev，合伙人端入口为 <code>https://agent-dev.jlpay.com/p/agent/</code></td><td><span class="badge ok">新口径</span></td></tr>
+      <tr><td>0.939</td><td><code>af075bd3</code></td><td>同上，运营端 <code>manage-dev.jlpay.com/busioperat/</code></td><td><span class="badge ok">新口径</span></td></tr>
+      <tr class="hl"><td>0.925</td><td><code>eb950249</code></td><td>合伙人前端联调环境位于 aether-vm（172.20.12.116）</td><td><span class="badge bad">旧口径 · 仍 valid</span></td></tr>
+      <tr><td>0.877</td><td><code>bb9d833d</code></td><td>旧 nginx 静态目录 <code>/srv/partner-web/dist</code></td><td><span class="badge gray">旧实现</span></td></tr>
+      <tr><td>0.854</td><td><code>bae6789f</code></td><td>VM 已于 11-12 下线，统一走 dev</td><td><span class="badge ok">新口径</span></td></tr>
+      <tr class="hl"><td>0.853</td><td><code>36b0f8c4</code></td><td>合伙人前端联调环境（aether-vm 172.20.12.116）</td><td><span class="badge bad">旧口径 · 仍 valid</span></td></tr>
+    </table></div>
+    <div class="callout bad">
+      <b>关键反证：</b><code>candidate_pairs(old=eb950249, new=bae6789f) → []</code>。旧/新口径不会进入候选，模型没有机会判断。其他仍 valid 的旧事实：<code>be0c154b</code>/<code>3fafdef2</code>（:80 是总入口）、<code>9e961281</code>（env2 入口）、<code>ec01d8cd</code>（VM 全承载）。
+    </div>
+  </section>
+
+  <section id="rootcause">
+    <h2>二、根因 <span class="hint">为什么现有治理抓不到</span></h2>
+    <div class="tablewrap"><table>
+      <tr><th style="width:180px">原因</th><th>说明</th></tr>
+      <tr><td><b>一对多，不是两两</b></td><td>一条迁移事实应影响多条旧断言；现有 <code>ai-govern</code> 只做 pair。</td></tr>
+      <tr><td><b>实体不同名</b></td><td>旧事实写 IP <code>172.20.12.116</code>，新事实写域名 <code>agent-dev.jlpay.com</code>，没有共同锚点。</td></tr>
+      <tr><td><b>文本相似度低</b></td><td>「位于 aether-vm」与「已下线、统一走 dev」的 bigram 重叠不足。</td></tr>
+      <tr><td><b>跨来源</b></td><td>旧事实 <code>document_id=None</code>（迁移自 WeKnora），新事实在当前会话文档；按会话缩小会漏。</td></tr>
+      <tr><td><b>状态无生命周期</b></td><td>Hindsight 只有 valid/invalidated；召回按相关度排序，不按时间判新旧。</td></tr>
+    </table></div>
+    <div class="callout">
+      <b>朴素正则不可用：</b>对 5,607 条有效事实按「下线/停用/迁移 + VM/1092143/IP/入口」匹配，得到 <b>2,748 条候选旧事实</b>，会误杀 Hindsight 服务、Wi-Fi、端口约定等无关事实。必须 scope 收窄 + AI 判官。
+    </div>
+  </section>
+
+  <section id="goals">
+    <h2>三、目标与非目标</h2>
+    <div class="grid2">
+      <div class="box">
+        <h3>目标</h3>
+        <p>1. 识别状态迁移并绑定 scope。</p>
+        <p>2. 按 scope 反查旧「当前状态断言」，不依赖相似度。</p>
+        <p>3. 专用 AI 判官区分「当前已过时」与「历史记录」。</p>
+        <p>4. 全自动失效、可回滚、可回查、可审计。</p>
+        <p>5. 对现有规则策略零侵入，复用 adapter / ledger / verify / rollback。</p>
+      </div>
+      <div class="box">
+        <h3>非目标</h3>
+        <p>1. 不判断记忆内容真假。</p>
+        <p>2. 不删除任何记录（只失效）。</p>
+        <p>3. 不替换召回排序或 re-ranker。</p>
+        <p>4. 不在写入侧做同步拦截（第一阶段仍是批量扫描）。</p>
+        <p>5. 第一阶段不处理阈值/次数类口径修订。</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="model">
+    <h2>四、数据模型 <span class="hint">四个对象</span></h2>
+    <div class="tablewrap"><table>
+      <tr><th style="width:170px">对象</th><th>字段</th><th style="width:220px">说明</th></tr>
+      <tr><td><b>TransitionFact（T）</b></td><td>id、transition_type、scope_entities、effective_at、evidence、document_id、mentioned_at</td><td>类型：OFFLINE / DISABLE / MIGRATE / RENAME / REPLACE / SCOPE_CHANGE</td></tr>
+      <tr><td><b>ScopeEntity（S）</b></td><td>type、canonical_id、aliases、source</td><td>HOST / IP / DOMAIN / SERVICE / BUSINESS_ID / ENV / PATH / TABLE / DOC</td></tr>
+      <tr><td><b>StateAssertion（A）</b></td><td>subject、predicate、polarity、tense、time_marker、evidence</td><td>predicate：入口/位于/在役/在用/可访问/总入口/地址/版本</td></tr>
+      <tr><td><b>TransitionVerdict</b></td><td>verdict、scope_entity、confidence、evidence_old、evidence_transition、reason</td><td>obsolete_current / historical_ok / unrelated / uncertain</td></tr>
+    </table></div>
+    <h3>别名表是跨写法归一的唯一手段</h3>
+    <pre><span class="c"># transitions.yaml（人工维护，不做自动实体解析）</span>
+aliases:
+  host:aether-vm:
+    - "aether-vm"
+    - "172.20.12.116"
+    - "100.69.57.44"
+    - "VM"
+  env:dev:
+    - "agent-dev.jlpay.com"
+    - "manage-dev.jlpay.com"
+    - "dev 环境"</pre>
+  </section>
+
+  <section id="pipeline">
+    <h2>五、处理流水线 <span class="hint">八步</span></h2>
+    <div class="steps">
+      <div class="step"><b>读快照</b><span>全部 valid 的 world/experience，记录时间与 document_id。</span></div>
+      <div class="step"><b>识别迁移事实</b><span>正则初筛迁移动词，AI 分类器确认，排除否定/假设句。</span></div>
+      <div class="step"><b>抽取 scope</b><span>受控实体词典 + 锚点 + 别名归一，不做通用分词。</span></div>
+      <div class="step"><b>scope 反查</b><span>同 canonical_id、时间早于 T 的旧事实；不看相似度。</span></div>
+      <div class="step"><b>状态断言过滤</b><span>旧事实需含当前状态措辞；纯历史措辞单独标记。</span></div>
+      <div class="step"><b>AI 判官</b><span>transition-v1，一对 T→A，输出 verdict + 双方原文引用。</span></div>
+      <div class="step"><b>机器闸门</b><span>schema、证据子串、置信度、时间、authority、上限。</span></div>
+      <div class="step"><b>执行与回查</b><span>只失效；写台账；召回回查；F&gt;10% 自动回滚。</span></div>
+    </div>
+    <div class="callout ok" style="margin-top:14px">
+      <b>执行前重读：</b>apply 前重新读 A 的 <code>state</code> / <code>updated_at</code>，若已被改过则跳过并告警，避免快照过期误杀。
+    </div>
+  </section>
+
+  <section id="candidates">
+    <h2>六、候选扩展 <span class="hint">scope 驱动，不是相似度驱动</span></h2>
+    <pre><span class="c"># 伪代码</span>
+for T in detect_transitions(valid_facts)[:max_transitions]:
+    for S in T.scope_entities:
+        olds = entity_index[S.canonical_id].older_than(T)
+        olds = [A for A in olds if A.state == valid and has_state_marker(A.text)]
+        ranked = rank(olds, key=(same_entity_type, shared_scope_count, recency))
+        for A in ranked[:max_candidates_per_transition]:
+            v = judge_transition(T, A)       <span class="c"># transition-v1</span>
+            if gate(v) and v.verdict == "obsolete_current":
+                actions.append(invalidate(A, reason=f"state_transition:{T.id}"))</pre>
+    <div class="tablewrap"><table>
+      <tr><th>参数</th><th>默认</th><th>作用</th></tr>
+      <tr><td><code>max_transitions</code></td><td>20</td><td>单轮迁移事实上限</td></tr>
+      <tr><td><code>max_candidates_per_transition</code></td><td>30</td><td>单条迁移的旧断言上限</td></tr>
+      <tr><td><code>max_invalidations</code></td><td>10（首周 3）</td><td>爆炸半径</td></tr>
+      <tr><td><code>confidence</code></td><td>0.90</td><td>状态迁移误杀代价更高</td></tr>
+      <tr><td><code>max_judgements</code></td><td>200</td><td>总判官调用成本上限</td></tr>
+    </table></div>
+  </section>
+
+  <section id="prompt">
+    <h2>七、判定契约与提示词 <span class="hint">transition-v1</span></h2>
+    <pre><span class="c"># system prompt（核心段）</span>
+你是记忆状态迁移裁判（transition-v1）。
+
+输入：一条迁移事实 T（较新）和一条旧断言 A（较早）。
+任务：判断 A 的"当前状态"是否已被 T 废止。
+
+定义：
+- obsolete_current：A 把某实体描述为当前入口/在用/位于/可访问/有效，
+  而 T 宣告同一实体已下线/停用/迁移/改名/不再使用。
+- historical_ok：A 明确是历史记录（带具体过去时间、"当时/实测/此前/曾"），
+  或描述的是不受 T 影响的属性（如主机仍存在、其他服务仍在运行）。
+- unrelated：实体或属性不同，或 T 没有覆盖 A。
+- uncertain：证据不足。
+
+硬规则：
+1. 只依据 A/T 原文，不引入外部知识。
+2. 必须引用 A 原文作为 evidence_old，引用 T 原文作为 evidence_transition。
+3. 主机仍存在 ≠ 联调入口仍有效；服务仍运行 ≠ 旧入口仍可用。
+4. 带明确过去时间且语义为历史记录的，判 historical_ok。
+5. 不确定判 uncertain；只输出 JSON。</pre>
+    <h3>输出 schema</h3>
+    <pre>{
+  "verdict": "obsolete_current | historical_ok | unrelated | uncertain",
+  "scope_entity": "host:aether-vm",
+  "confidence": 0.0,
+  "evidence_old": "&lt;A 原文连续片段&gt;",
+  "evidence_transition": "&lt;T 原文连续片段&gt;",
+  "historical_markers": ["当时", "2026-11-12 实测"],
+  "reason": "&lt;= 80 字"
+}</pre>
+    <h3>动作矩阵</h3>
+    <div class="tablewrap"><table>
+      <tr><th>verdict</th><th>置信度</th><th>动作</th></tr>
+      <tr class="hl-ok"><td><code>obsolete_current</code></td><td>≥ 0.90</td><td>失效 A；reason=<code>state_transition:&lt;T.id&gt;</code>；replacement=T.id</td></tr>
+      <tr><td><code>obsolete_current</code></td><td>&lt; 0.90</td><td>不动作；记 low_confidence</td></tr>
+      <tr><td><code>historical_ok</code></td><td>任意</td><td>不失效；可选打 <code>status:historical</code> + valid_until</td></tr>
+      <tr><td><code>unrelated</code> / <code>uncertain</code></td><td>任意</td><td>不动作</td></tr>
+      <tr class="hl"><td>带 <code>authority:official</code></td><td>任意</td><td>不自动失效；记 authority_conflict</td></tr>
+    </table></div>
+  </section>
+
+  <section id="safety">
+    <h2>八、安全与自动回滚</h2>
+    <div class="tablewrap"><table>
+      <tr><th style="width:150px">闸门</th><th>规则</th></tr>
+      <tr><td>只失效不删除</td><td>所有动作是 invalidate，可 PATCH state=valid 回滚。</td></tr>
+      <tr><td>证据</td><td>evidence_old / evidence_transition 必须是原文连续子串。</td></tr>
+      <tr><td>时间</td><td>只允许失效早于 T 的事实。</td></tr>
+      <tr><td>authority</td><td>旧事实带 authority:official 时不自动失效。</td></tr>
+      <tr><td>并发</td><td>apply 前重读 state/updated_at；变化则跳过并告警。</td></tr>
+      <tr><td>注入</td><td>原文含「忽略以上指令 / system prompt」时跳过该对。</td></tr>
+      <tr><td>上限</td><td>transitions / candidates / invalidations / judgements 四重上限。</td></tr>
+      <tr><td>回查</td><td>失效后再召回；同 id 或近似原文命中即失败。</td></tr>
+      <tr><td>自动回滚</td><td>F &gt; 0.10 时恢复本轮全部失效。</td></tr>
+      <tr><td>审计</td><td>run JSON + ledger.jsonl，含 T、A、scope、verdict、confidence、evidence、model、prompt 版本。</td></tr>
+    </table></div>
+  </section>
+
+  <section id="mapping">
+    <h2>九、与现有模块的关系 <span class="hint">复用，不重写</span></h2>
+    <div class="tablewrap"><table>
+      <tr><th style="width:260px">模块</th><th>处理</th></tr>
+      <tr><td><code>adapters/</code></td><td>复用；Hindsight 仍只暴露 world/experience。</td></tr>
+      <tr><td><code>ai.py</code> 的 schema/证据校验、缓存、token 统计</td><td>复用。</td></tr>
+      <tr><td><code>ledger.py</code> 的 run JSON、rollback、verify_forgetting</td><td>复用。</td></tr>
+      <tr><td><code>ai_governor.py</code> 的 apply + auto-rollback</td><td>复用。</td></tr>
+      <tr><td><code>transitions.py</code></td><td>新增：迁移识别、scope 抽取、别名归一、候选扩展。</td></tr>
+      <tr><td><code>prompts.py</code></td><td>新增 transition-v1（与 conflict-v1 并存）。</td></tr>
+      <tr><td><code>ai.py</code></td><td>新增 transition decision 解析与动作转换。</td></tr>
+      <tr><td><code>ai_governor.py</code></td><td>新增 TransitionGovernor。</td></tr>
+      <tr><td><code>cli.py</code></td><td>新增 <code>memgov ai-transition</code>。</td></tr>
+    </table></div>
+    <div class="callout">不修改现有 ttl / supersede / dedup / importance / scope_limit 的行为。</div>
+  </section>
+
+  <section id="acceptance">
+    <h2>十、验收标准 <span class="hint">用你的会话做基准</span></h2>
+    <h3>必须抓到并判 obsolete_current</h3>
+    <div class="tablewrap"><table>
+      <tr><th style="width:110px">旧事实</th><th>内容</th></tr>
+      <tr><td><code>eb950249</code></td><td>合伙人前端联调环境位于 aether-vm（172.20.12.116）</td></tr>
+      <tr><td><code>36b0f8c4</code></td><td>合伙人前端联调环境（aether-vm 172.20.12.116）</td></tr>
+      <tr><td><code>be0c154b</code> / <code>3fafdef2</code></td><td>172.20.12.116:80 是总入口</td></tr>
+      <tr><td><code>9e961281</code></td><td>VM env2 入口 :8085/busioperat</td></tr>
+    </table></div>
+    <h3>必须判 historical_ok / unrelated，不得失效</h3>
+    <div class="tablewrap"><table>
+      <tr><th style="width:110px">旧事实</th><th>内容</th><th style="width:130px">期望</th></tr>
+      <tr><td><code>80a7f59c</code></td><td>Aether VM 的 IP / SSH 访问方式</td><td><span class="badge ok">unrelated</span></td></tr>
+      <tr><td><code>d1639a4f</code></td><td>VM 上 Hindsight 8888 / Phoenix 6006 / Excalidraw 6011</td><td><span class="badge ok">unrelated</span></td></tr>
+      <tr><td><code>6ba243e4</code></td><td>Wi-Fi / SSH 连通性</td><td><span class="badge ok">unrelated</span></td></tr>
+      <tr><td><code>48447b02</code></td><td>VM 上在役… 2026-11-12 实测</td><td><span class="badge ok">historical_ok</span></td></tr>
+    </table></div>
+    <div class="stats" style="grid-template-columns:repeat(3,1fr)">
+      <div class="stat ok"><b>≥ 90%</b><span>30 对标注样本精确率</span></div>
+      <div class="stat ok"><b>≥ 80%</b><span>已知旧口径召回率</span></div>
+      <div class="stat"><b>100%</b><span>同输入重跑动作一致</span></div>
+    </div>
+  </section>
+
+  <section id="phases">
+    <h2>十一、分阶段实施</h2>
+    <div class="tablewrap"><table>
+      <tr><th style="width:80px">阶段</th><th>内容</th><th style="width:110px">是否写库</th></tr>
+      <tr><td><b>P1</b></td><td>迁移识别 + scope 索引 + 候选扩展（不调 AI）</td><td><span class="badge gray">否</span></td></tr>
+      <tr><td><b>P2</b></td><td>transition-v1 判官 + 证据/置信度闸门 + dry-run</td><td><span class="badge gray">否</span></td></tr>
+      <tr><td><b>P3</b></td><td>apply + verify + auto-rollback，首周 max_invalidations=3</td><td><span class="badge warn">是，小批量</span></td></tr>
+      <tr><td><b>P4</b></td><td>提高上限、接定时任务、status:historical 过滤</td><td><span class="badge warn">是</span></td></tr>
+    </table></div>
+  </section>
+
+  <section id="decisions">
+    <h2>十二、待拍板 <span class="hint">5 项，都给了推荐值</span></h2>
+    <div class="decision">
+      <div class="dcard"><div class="n">01</div><b>历史事实怎么处理</b><p>A 只失效当前状态，历史保留打标；B 历史也失效；C 只打标不失效。</p><span class="rec">推荐 A</span></div>
+      <div class="dcard"><div class="n">02</div><b>失效范围</b><p>只当前会话，还是全库跨会话？旧事实 document_id=None，按会话会漏。</p><span class="rec">推荐全库</span></div>
+      <div class="dcard"><div class="n">03</div><b>实体别名表</b><p>人工维护，还是自动实体解析？</p><span class="rec">推荐人工维护</span></div>
+      <div class="dcard"><div class="n">04</div><b>authority 标签</b><p>给画像/领域文档打 authority:official，保护旧但权威的事实。</p><span class="rec">推荐打</span></div>
+      <div class="dcard"><div class="n">05</div><b>口径修订类</b><p>阈值/次数变化是否纳入本设计？</p><span class="rec">推荐第二阶段</span></div>
+    </div>
+  </section>
+
+  <section id="risks">
+    <h2>十三、风险与边界</h2>
+    <div class="tablewrap"><table>
+      <tr><th style="width:260px">风险</th><th>缓解</th></tr>
+      <tr><td>误杀仍成立的旧事实（VM 主机仍存在）</td><td>状态断言过滤 + transition-v1 + 置信度 0.90 + 回查回滚</td></tr>
+      <tr><td>别名漏配导致抓不到</td><td>别名表评审；未命中只报告，不动作</td></tr>
+      <tr><td>历史证据丢失</td><td>推荐 A；historical_ok 打 status:historical</td></tr>
+      <tr><td>候选爆炸</td><td>scope 索引 + 三重上限；2,748 条朴素候选已证明不可用</td></tr>
+      <tr><td>模型判错</td><td>证据子串闸门只能防编造；首周人工抽检 run JSON</td></tr>
+      <tr><td>快照非事务</td><td>apply 前重读 state/updated_at</td></tr>
+      <tr><td>口径修订类（阈值/次数）</td><td>第二阶段单独设计，不混入本流程</td></tr>
+    </table></div>
+  </section>
+
+  <section id="appendix">
+    <h2>附录：原始输出</h2>
+    <pre><span class="c"># 会话记忆量</span>
+document local-fa7570…0734d: memory_unit_count = 94
+
+<span class="c"># 召回（query=合伙人端联调入口地址是什么）</span>
+0.960 0b92f28e 用户确定联调/验收统一走 dev 环境，合伙人端入口为 https://agent-dev.jlpay.com/p/agent/。
+0.939 af075bd3 用户确定联调/验收取统一走 dev 环境…
+0.925 eb950249 合伙人前端联调环境位于 aether-vm（172.20.12.116）。
+0.877 bb9d833d 合伙人前端联调环境的 nginx 静态目录为 /srv/partner-web/dist…
+0.854 bae6789f 1092143 VM 联调环境已于 2026-11-12 下线…
+0.853 36b0f8c4 合伙人前端联调环境（aether-vm 172.20.12.116）…
+
+<span class="c"># 候选配对</span>
+candidate_pairs(old=eb950249, new=bae6789f) -> []
+
+<span class="c"># 朴素状态迁移扫描</span>
+valid world+experience = 5,607
+transition facts = 517
+naive candidate old facts = 2,748</pre>
+  </section>
+
+  <div class="footer">
+    <span>memgov · 记忆状态迁移治理总设计</span>
+    <span>v0.1 · 2026-11-19 dry-run</span>
+    <span>仓库：dxqlovestudy/memgov</span>
+    <span>Agent 版：docs/state-transition-design.md</span>
+  </div>
+</main>
+</div>
+</body>
+</html>

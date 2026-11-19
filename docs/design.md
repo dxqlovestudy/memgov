@@ -1,5 +1,7 @@
 # Design
 
+> System architecture (components, data flows, deployment): [`system-architecture.md`](system-architecture.md).
+
 ## Problem
 
 Memory backends are optimized for **recall**. Governance is usually an afterthought:

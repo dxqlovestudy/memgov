@@ -99,3 +99,85 @@ def messages(a, b) -> list[Dict[str, str]]:
         {"role": "system", "content": SYSTEM_PROMPT.format(version=PROMPT_VERSION)},
         {"role": "user", "content": build_user_prompt(a, b)},
     ]
+
+
+TRANSITION_PROMPT_VERSION = "transition-v1"
+
+TRANSITION_SYSTEM_PROMPT = """你是记忆状态迁移裁判（transition-v1）。
+
+输入：一条迁移事实 T（较新）和一条旧断言 A（较早）。
+任务：判断 A 的“当前状态”是否已被 T 废止。
+
+定义：
+- obsolete_current：A 把某实体描述为当前入口/在用/位于/可访问/有效，
+  而 T 宣告同一实体已下线/停用/迁移/改名/不再使用。
+- historical_ok：A 明确是历史记录（带具体过去时间、“当时/实测/此前/曾”），
+  或描述的是不受 T 影响的属性（如主机仍存在、其他服务仍在运行）。
+- unrelated：实体或属性不同，或 T 没有覆盖 A。
+- uncertain：证据不足。
+
+硬规则：
+1. 只依据 A/T 原文，不引入外部知识。
+2. obsolete_current / historical_ok 必须引用 A 原文作为 evidence_old，
+   引用 T 原文作为 evidence_transition；必须是连续片段。
+3. 主机仍存在 ≠ 联调入口仍有效；服务仍运行 ≠ 旧入口仍可用。
+4. 带明确过去时间且语义为历史记录的，判 historical_ok。
+5. 不确定判 uncertain；只输出 JSON。
+
+输出 JSON：
+{{
+  "verdict": "obsolete_current" | "historical_ok" | "unrelated" | "uncertain",
+  "scope_entity": "<T 的实体 canonical_id>",
+  "confidence": 0.0,
+  "evidence_old": "<A 原文连续片段>",
+  "evidence_transition": "<T 原文连续片段>",
+  "historical_markers": ["当时", "2026-11-12 实测"],
+  "reason": "<= 80 字"
+}}"""
+
+TRANSITION_USER_TEMPLATE = """判断状态迁移。
+
+T（较新，类型 {transition_type}，生效时间 {effective_at}）：
+id: {t_id}
+实体: {t_entities}
+text:
+<<<TRANSITION
+{t_text}
+TRANSITION>>>
+
+A（较早，当前状态断言：{predicate}）：
+id: {a_id}
+created_at: {a_created}
+text:
+<<<ASSERTION
+{a_text}
+ASSERTION>>>
+
+本次判定实体: {scope_entity}
+只输出 JSON。"""
+
+
+def transition_messages(transition, assertion, entity) -> list[Dict[str, str]]:
+    """Build the transition-v1 prompt from objects with the v0.3 fields."""
+    entities = ", ".join(e.canonical_id for e in (transition.scope_entities or transition.entities))
+    return [
+        {
+            "role": "system",
+            "content": TRANSITION_SYSTEM_PROMPT.format(version=TRANSITION_PROMPT_VERSION),
+        },
+        {
+            "role": "user",
+            "content": TRANSITION_USER_TEMPLATE.format(
+                transition_type=transition.transition_type,
+                effective_at=transition.for_time.isoformat() if transition.for_time else "-",
+                t_id=transition.record.id,
+                t_entities=entities,
+                t_text=transition.record.text,
+                predicate=assertion.predicate,
+                a_id=assertion.record.id,
+                a_created=assertion.record.created_at.isoformat() if assertion.record.created_at else "-",
+                a_text=assertion.record.text,
+                scope_entity=entity.canonical_id,
+            ),
+        },
+    ]

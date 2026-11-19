@@ -23,6 +23,34 @@ def render_markdown(report: ScanReport, limit: int = 100) -> str:
     for key, value in sorted(report.counts().items()):
         lines.append(f"| {key} | {value} |")
 
+    if report.mode == "ai-transition":
+        ai = report.ai or {}
+        lines += [
+            "",
+            "## State transition",
+            "",
+            f"- model: `{ai.get('model', '-')}` (prompt `{ai.get('prompt_version', '-')}`)",
+            f"- records: {ai.get('records_scanned', 0)}; transitions: {ai.get('transition_count', 0)}; "
+            f"candidates: {ai.get('candidate_count', 0)}; judged: {ai.get('judged', 0)}",
+            f"- confidence threshold: {ai.get('confidence_threshold', '-')}; limits: `{ai.get('limits', {})}`",
+            f"- calls: {ai.get('calls', 0)} (cached {ai.get('cached', 0)}); "
+            f"tokens: {ai.get('total_tokens', 0)}",
+        ]
+        if ai.get("rejected"):
+            lines.append(f"- rejected: `{ai['rejected']}`")
+        if ai.get("errors"):
+            lines.append(f"- errors: {len(ai['errors'])} (see run JSON)")
+        lines += [
+            "",
+            "| transition | assertion | entity | score |",
+            "|---|---|---|---|",
+        ]
+        for row in (ai.get("candidates") or [])[:20]:
+            lines.append(
+                f"| `{row['transition_id'][:12]}` {row['transition_text'][:40]} "
+                f"| `{row['assertion_id'][:12]}` {row['assertion_text'][:40]} "
+                f"| `{row['entity']}` | {row['score']} |"
+            )
     if report.mode == "ai":
         ai = report.ai or {}
         lines += [

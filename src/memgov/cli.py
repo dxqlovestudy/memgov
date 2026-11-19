@@ -14,6 +14,7 @@ from .adapters import HindsightAdapter, JsonFileAdapter, MemoryAdapter
 from .adapters.base import Adapter
 from .ai import AIConfig
 from .ai_governor import AIGovernor
+from .ai_transition import TransitionGovernor, summarize_transition
 from .engine import Engine
 from .ledger import Ledger, verify_forgetting
 from .models import MemoryRecord
@@ -270,6 +271,60 @@ def cmd_ai_govern(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_ai_transition(args: argparse.Namespace) -> int:
+    require_write_env(args)
+    base_url = args.ai_base_url or os.environ.get("MEMGOV_AI_BASE_URL") or os.environ.get("OPENAI_BASE_URL")
+    api_key = os.environ.get("MEMGOV_AI_API_KEY") or os.environ.get("OPENAI_API_KEY") or ""
+    model = args.ai_model or os.environ.get("MEMGOV_AI_MODEL") or ""
+    if not args.candidates_only:
+        if not base_url or not model:
+            raise SystemExit("--ai-base-url and --ai-model (or env) are required")
+        if not api_key:
+            raise SystemExit("MEMGOV_AI_API_KEY or OPENAI_API_KEY is required")
+
+    cache_path = None
+    if not args.no_cache:
+        cache_path = args.ai_cache or os.path.join(args.runs_dir, "ai-cache.json")
+    config = AIConfig(
+        base_url=base_url or "http://127.0.0.1:1",
+        api_key=api_key,
+        model=model or "none",
+        confidence_threshold=args.confidence,
+        auto_rollback=args.auto_rollback,
+        verify_failure_threshold=args.verify_threshold,
+        cache_path=cache_path,
+    )
+    ledger = Ledger(args.runs_dir)
+    adapter = build_adapter(args, write=args.apply)
+    governor = TransitionGovernor(
+        adapter=adapter,
+        config=config,
+        ledger=ledger,
+        dry_run=not args.apply,
+        max_records=args.limit,
+        candidates_only=args.candidates_only,
+        aliases_path=args.aliases,
+        max_transitions=args.max_transitions,
+        max_candidates=args.max_candidates,
+        max_judgements=args.max_judgements,
+        max_invalidations=args.max_invalidations,
+        only_transition=[x for x in (args.only_transition or "").split(",") if x.strip()],
+    )
+    report = governor.run()
+    if args.candidates_only:
+        print(summarize_transition(report))
+    elif args.json:
+        print(json.dumps({"summary": summary(report), "run_file": report.run_file,
+                          "ai": report.ai, "verification": report.verification,
+                          "rolled_back": report.rolled_back}, ensure_ascii=False, indent=2))
+    else:
+        print(render_markdown(report))
+        print(f"run file: {report.run_file}")
+        if not args.apply and report.actions:
+            print("dry-run only; re-run with --apply and MEMGOV_ALLOW_WRITE=1 to mutate")
+    return 0
+
+
 def cmd_demo(args: argparse.Namespace) -> int:
     policies = build_policies(
         {
@@ -356,6 +411,28 @@ def main(argv: Optional[List[str]] = None) -> int:
     p_ai.add_argument("--verify-threshold", type=float, default=0.1)
     p_ai.add_argument("--candidates-only", action="store_true")
     p_ai.set_defaults(func=cmd_ai_govern)
+
+    p_tr = sub.add_parser("ai-transition", help="state-transition governance: T -> old current-state assertions")
+    add_common(p_tr)
+    add_adapter_args(p_tr)
+    p_tr.add_argument("--limit", type=int, default=None)
+    p_tr.add_argument("--apply", action="store_true")
+    p_tr.add_argument("--aliases", help="YAML alias file (default built-in aliases)")
+    p_tr.add_argument("--max-transitions", type=int, default=10)
+    p_tr.add_argument("--max-candidates", type=int, default=5)
+    p_tr.add_argument("--max-judgements", type=int, default=25)
+    p_tr.add_argument("--max-invalidations", type=int, default=3)
+    p_tr.add_argument("--confidence", type=float, default=0.90)
+    p_tr.add_argument("--ai-base-url")
+    p_tr.add_argument("--ai-model")
+    p_tr.add_argument("--ai-cache")
+    p_tr.add_argument("--no-cache", action="store_true")
+    p_tr.add_argument("--auto-rollback", dest="auto_rollback", action="store_true", default=True)
+    p_tr.add_argument("--no-auto-rollback", dest="auto_rollback", action="store_false")
+    p_tr.add_argument("--verify-threshold", type=float, default=0.1)
+    p_tr.add_argument("--candidates-only", action="store_true")
+    p_tr.add_argument("--only-transition", default="", help="comma-separated transition id prefixes")
+    p_tr.set_defaults(func=cmd_ai_transition)
 
     p_demo = sub.add_parser("demo", help="run the built-in demo")
     p_demo.add_argument("--runs-dir", default="runs")

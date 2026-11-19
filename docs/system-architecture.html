@@ -1,0 +1,446 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>记忆治理引擎 · 系统架构（v0.1 设计稿）</title>
+<style>
+  :root{
+    --bg:#f5f6f8;--card:#fff;--fg:#111827;--muted:#6b7280;--line:#e5e7eb;
+    --accent:#2563eb;--accent-soft:#eef2ff;--ok:#15803d;--ok-soft:#e8f7ee;
+    --warn:#b45309;--warn-soft:#fff5e6;--bad:#b91c1c;--bad-soft:#fdecec;
+    --code:#0f172a;--code-fg:#e5e7eb;--shadow:0 1px 2px rgba(16,24,40,.05);
+    --data:#0f766e;--data-soft:#e6f4f1;--ai:#b45309;--ai-soft:#fff5e6;
+  }
+  @media (prefers-color-scheme:dark){
+    :root{--bg:#0f1115;--card:#171a21;--fg:#e5e7eb;--muted:#9ca3af;--line:#252a33;
+      --accent:#7aa2ff;--accent-soft:#1b2333;--ok:#3ecf8e;--ok-soft:#12291f;
+      --warn:#e6b450;--warn-soft:#2a2314;--bad:#ef5b5b;--bad-soft:#2a1517;
+      --code:#0b0e14;--code-fg:#e5e7eb;--shadow:none;
+      --data:#3ecf8e;--data-soft:#12291f;--ai:#e6b450;--ai-soft:#2a2314;}
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{margin:0;background:var(--bg);color:var(--fg);
+    font:15px/1.75 -apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",Arial,sans-serif}
+  a{color:var(--accent);text-decoration:none}
+  .layout{display:grid;grid-template-columns:250px minmax(0,1fr);gap:28px;
+    max-width:1280px;margin:0 auto;padding:28px 22px 70px}
+  aside{position:sticky;top:24px;align-self:start;max-height:calc(100vh - 48px);overflow:auto}
+  .brand{display:flex;align-items:center;gap:10px;margin-bottom:16px}
+  .mark{width:34px;height:34px;border-radius:9px;background:var(--accent);color:#fff;
+    display:grid;place-items:center;font-weight:800;font-size:15px}
+  .brand b{font-size:14px;display:block;line-height:1.3}
+  .brand span{font-size:12px;color:var(--muted)}
+  nav{font-size:13px}
+  nav a{display:block;padding:5px 9px;border-radius:7px;color:var(--muted);border-left:2px solid transparent}
+  nav a:hover{background:var(--accent-soft);color:var(--accent)}
+  .sidebox{margin-top:18px;border:1px solid var(--line);background:var(--card);border-radius:10px;
+    padding:10px 12px;font-size:12px;color:var(--muted)}
+  .sidebox b{color:var(--fg)}
+  main{min-width:0}
+  .hero{border:1px solid var(--line);background:var(--card);border-radius:16px;padding:26px 28px;box-shadow:var(--shadow)}
+  .kicker{font-size:12px;letter-spacing:.08em;color:var(--accent);font-weight:700;text-transform:uppercase}
+  h1{font-size:30px;line-height:1.25;margin:8px 0 8px;letter-spacing:-.01em}
+  .lede{font-size:16px;color:var(--muted);margin:0;max-width:880px}
+  .meta{display:flex;flex-wrap:wrap;gap:8px;margin-top:16px}
+  .pill{font-size:12px;border:1px solid var(--line);border-radius:999px;padding:4px 10px;color:var(--muted);background:var(--bg)}
+  .pill.draft{color:var(--warn);background:var(--warn-soft);border-color:transparent;font-weight:600}
+  .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:18px 0 4px}
+  .stat{border:1px solid var(--line);border-radius:12px;background:var(--bg);padding:12px 14px}
+  .stat b{display:block;font-size:23px;line-height:1.2;letter-spacing:-.02em}
+  .stat span{font-size:12px;color:var(--muted)}
+  .stat.ok b{color:var(--ok)}.stat.warn b{color:var(--warn)}.stat.bad b{color:var(--bad)}
+  section{margin-top:34px}
+  h2{font-size:21px;margin:0 0 6px;letter-spacing:-.01em;scroll-margin-top:20px}
+  h2 .hint{font-size:12px;color:var(--muted);font-weight:400;margin-left:8px}
+  h3{font-size:16px;margin:22px 0 8px}
+  p{margin:8px 0}
+  .box{border:1px solid var(--line);background:var(--card);border-radius:12px;padding:16px 18px;box-shadow:var(--shadow)}
+  .callout{border-left:4px solid var(--accent);background:var(--accent-soft);border-radius:8px;padding:12px 16px;margin:12px 0}
+  .callout.ok{border-left-color:var(--ok);background:var(--ok-soft)}
+  .callout.warn{border-left-color:var(--warn);background:var(--warn-soft)}
+  .grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  .tile{border:1px solid var(--line);background:var(--card);border-radius:12px;padding:14px 16px}
+  .tile .t{font-size:12px;color:var(--muted);margin-bottom:4px}
+  .tile b{font-size:15px}
+  .tile p{font-size:13.5px;color:var(--muted);margin:6px 0 0}
+  .tablewrap{overflow-x:auto;border:1px solid var(--line);border-radius:12px;background:var(--card);
+    margin:12px 0;-webkit-overflow-scrolling:touch}
+  .tablewrap table{border:0;border-radius:0;margin:0;min-width:640px}
+  table{width:100%;border-collapse:separate;border-spacing:0;background:var(--card)}
+  th,td{padding:9px 12px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top;font-size:13.5px}
+  th{font-size:12px;color:var(--muted);font-weight:600;background:color-mix(in srgb,var(--card) 86%,var(--bg))}
+  tr:last-child td{border-bottom:none}
+  code{font:12.5px/1.5 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+    background:color-mix(in srgb,var(--card) 70%,var(--bg));border-radius:5px;padding:1px 5px}
+  pre{background:var(--code);color:var(--code-fg);border-radius:10px;padding:14px 16px;overflow:auto;
+    font:12.5px/1.65 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;white-space:pre-wrap;word-break:break-word}
+  .badge{display:inline-block;border-radius:999px;padding:1px 8px;font-size:11.5px;font-weight:700;white-space:nowrap}
+  .badge.ok{color:var(--ok);background:var(--ok-soft)}
+  .badge.warn{color:var(--warn);background:var(--warn-soft)}
+  .badge.gray{color:var(--muted);background:var(--bg)}
+  .badge.bad{color:var(--bad);background:var(--bad-soft)}
+  .archwrap{overflow-x:auto;border:1px solid var(--line);border-radius:14px;background:var(--card);padding:10px}
+  .arch{width:100%;min-width:900px;height:auto;display:block}
+  .node{fill:var(--card);stroke:var(--line);stroke-width:1.5}
+  .node.data{stroke:var(--data)}
+  .node.ctrl{stroke:var(--accent)}
+  .node.ai{stroke:var(--ai)}
+  .node.obs{stroke:var(--muted)}
+  .nt{fill:var(--fg);font-size:13px;font-weight:700}
+  .ns{fill:var(--muted);font-size:11.5px}
+  .edge{stroke:var(--muted);stroke-width:1.4;fill:none;marker-end:url(#arrow)}
+  .edge.data{stroke:var(--data)}
+  .edge.ctrl{stroke:var(--accent)}
+  .edge.ai{stroke:var(--ai)}
+  .lbl{fill:var(--muted);font-size:11px;stroke:var(--card);stroke-width:4;paint-order:stroke}
+  .legend{display:flex;flex-wrap:wrap;gap:14px;margin-top:8px;font-size:12px;color:var(--muted)}
+  .dot{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:5px;vertical-align:middle}
+  .footer{margin-top:38px;border-top:1px solid var(--line);padding-top:14px;color:var(--muted);font-size:12px;
+    display:flex;flex-wrap:wrap;gap:14px}
+  @media (max-width:1050px){
+    .layout{grid-template-columns:1fr;gap:16px}
+    aside{position:static;max-height:none;order:2}
+    nav{columns:2}
+    .stats{grid-template-columns:1fr 1fr}
+  }
+  @media (max-width:720px){
+    h1{font-size:24px}.grid3,.grid2{grid-template-columns:1fr}
+    nav{columns:1}.layout{padding:18px 14px 50px}
+    .tablewrap table{min-width:560px}
+  }
+  @media print{
+    aside{display:none}.layout{display:block;max-width:none;padding:0}
+    body{background:#fff}.box,.hero,.tablewrap,.tile{box-shadow:none}
+    section{break-inside:avoid}
+  }
+</style>
+</head>
+<body>
+<div class="layout">
+<aside>
+  <div class="brand">
+    <div class="mark">A</div>
+    <div><b>memgov · 系统架构</b><span>数据面 / 控制面 / 观测面</span></div>
+  </div>
+  <nav>
+    <a href="#where">架构在哪里</a>
+    <a href="#summary">一、结论摘要</a>
+    <a href="#context">二、系统上下文</a>
+    <a href="#layers">三、分层架构</a>
+    <a href="#components">四、组件清单</a>
+    <a href="#flows">五、数据流</a>
+    <a href="#interfaces">六、接口与契约</a>
+    <a href="#deploy">七、部署拓扑</a>
+    <a href="#failures">八、失败模式</a>
+    <a href="#status">九、现状与缺口</a>
+    <a href="#roadmap">十、演进路线</a>
+    <a href="#decisions">十一、待拍板</a>
+    <a href="#relation">与状态迁移设计的关系</a>
+  </nav>
+  <div class="sidebox">
+    <b>状态：设计稿</b><br>
+    版本 0.1 · 2026-11-13<br>
+    设计阶段：未改代码、未提交。<br><br>
+    v0.2 已实现 · v0.3 dry-run<br>
+    Agent 版：<code>docs/system-architecture.md</code>
+  </div>
+</aside>
+
+<main>
+  <div class="hero">
+    <div class="kicker">System Architecture · Design Draft</div>
+    <h1>记忆治理引擎 · 系统架构</h1>
+    <p class="lede">数据面唯一真源是 Hindsight；memgov 是旁路控制面，只发失效/恢复动作、记账、回查；对话链路不经过 memgov。三句话定义整个系统。</p>
+    <div class="meta">
+      <span class="pill draft">设计稿 · 未提交</span>
+      <span class="pill">v0.1 · 2026-11-13</span>
+      <span class="pill">v0.2 已实现 · v0.3 dry-run</span>
+      <span class="pill">不改对话链路</span>
+    </div>
+    <div class="stats">
+      <div class="stat"><b>3</b><span>层：数据面 / 控制面 / 观测面</span></div>
+      <div class="stat ok"><b>2</b><span>写入开关：--apply + MEMGOV_ALLOW_WRITE=1</span></div>
+      <div class="stat"><b>30m</b><span>看板采集周期</span></div>
+      <div class="stat"><b>56</b><span>当前测试数（v0.2）</span></div>
+    </div>
+  </div>
+
+  <section id="where">
+    <h2>架构在哪里 <span class="hint">先回答你的问题</span></h2>
+    <div class="callout warn">
+      仓库 <code>README.md</code> 只有一张<b>引擎内部</b>流程图（Adapter → Policy → Ledger）；<code>docs/design.md</code> 讲设计原则，没有覆盖 Hermes、Hindsight、AI 网关、看板、调度器的部署关系。<b>本文是第一份系统级架构文档。</b>
+    </div>
+    <div class="grid3">
+      <div class="tile"><div class="t">数据面</div><b>Hindsight</b><p>唯一真源：documents / facts / observations，提供 recall。memgov 不存记忆。</p></div>
+      <div class="tile"><div class="t">控制面</div><b>memgov</b><p>读快照、判去留、发失效/恢复、记账、回查；不在每轮对话路径上。</p></div>
+      <div class="tile"><div class="t">观测面</div><b>看板 + 27 题评估</b><p>质量、延迟、库健康、遗忘失败率；只读，不参与治理决策。</p></div>
+    </div>
+  </section>
+
+  <section id="summary">
+    <h2>一、结论摘要</h2>
+    <div class="callout ok">
+      <b>三条硬边界：</b>① memgov 不在每轮对话路径上，对话写入/召回由 Hermes 插件直接打 Hindsight；② memgov 不存记忆、不做召回排序；③ 所有写动作可逆，只 invalidate，restore 即回滚。
+    </div>
+    <div class="tablewrap"><table>
+      <tr><th style="width:150px">层</th><th style="width:180px">角色</th><th>一句话</th></tr>
+      <tr><td><b>数据面</b></td><td>Hindsight</td><td>存文档、事实、observation；提供 recall；pg0 持久化。</td></tr>
+      <tr><td><b>控制面</b></td><td>memgov</td><td>批量治理：规则策略 + AI 判官 + 机器闸门 + 执行 + 台账 + 回查。</td></tr>
+      <tr><td><b>观测面</b></td><td>看板 + 评估 + Phoenix</td><td>只读结果：质量、延迟、库健康、F 率；Phoenix 可选。</td></tr>
+    </table></div>
+  </section>
+
+  <section id="context">
+    <h2>二、系统上下文 <span class="hint">一张图看全</span></h2>
+    <div class="archwrap">
+      <svg class="arch" viewBox="0 0 1120 600" role="img" aria-label="记忆治理系统架构图">
+        <defs>
+          <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" fill="var(--muted)"/>
+          </marker>
+        </defs>
+
+        <!-- Hermes -->
+        <rect class="node data" x="24" y="24" width="290" height="110" rx="10"/>
+        <text class="nt" x="42" y="50">Hermes Agent 运行时</text>
+        <text class="ns" x="42" y="72">每轮 retain / recall</text>
+        <text class="ns" x="42" y="90">profile:dxq 无条件注入</text>
+        <text class="ns" x="42" y="108">Desktop / Gateway · 本机 macOS</text>
+
+        <!-- Logs -->
+        <rect class="node obs" x="24" y="170" width="290" height="95" rx="10"/>
+        <text class="nt" x="42" y="196">本机日志</text>
+        <text class="ns" x="42" y="218">agent.log · state.db</text>
+        <text class="ns" x="42" y="236">Hindsight 服务端日志（VM）</text>
+
+        <!-- Ledger -->
+        <rect class="node ctrl" x="24" y="330" width="290" height="120" rx="10"/>
+        <text class="nt" x="42" y="356">Ledger + Verify</text>
+        <text class="ns" x="42" y="378">run JSON + ledger.jsonl</text>
+        <text class="ns" x="42" y="396">verify-forgetting · F 率</text>
+        <text class="ns" x="42" y="414">auto-rollback · 决策缓存</text>
+
+        <!-- memgov control -->
+        <rect class="node ctrl" x="360" y="170" width="390" height="220" rx="12"/>
+        <text class="nt" x="380" y="196">memgov 控制面</text>
+        <text class="ns" x="380" y="220">接入　CLI / cron /（未来）插件事件</text>
+        <text class="ns" x="380" y="242">采集　Adapter + Capabilities + 快照</text>
+        <text class="ns" x="380" y="264">决策　规则策略 | 候选 | AI 判官 | 闸门</text>
+        <text class="ns" x="380" y="286">执行　invalidate / archive / restore</text>
+        <line x1="380" y1="300" x2="730" y2="300" stroke="var(--line)" stroke-width="1"/>
+        <text class="ns" x="380" y="322">dry-run 默认 · --apply + MEMGOV_ALLOW_WRITE=1</text>
+        <text class="ns" x="380" y="342">只失效不删除 · 动作可回滚</text>
+
+        <!-- Hindsight -->
+        <rect class="node data" x="820" y="50" width="270" height="150" rx="10"/>
+        <text class="nt" x="838" y="76">Hindsight 数据面</text>
+        <text class="ns" x="838" y="98">API :8888 · bank dxq</text>
+        <text class="ns" x="838" y="116">documents / facts / observations</text>
+        <text class="ns" x="838" y="134">pg0 数据卷 · 自动 consolidation</text>
+        <text class="ns" x="838" y="152">唯一真源，不存治理策略</text>
+
+        <!-- AI -->
+        <rect class="node ai" x="820" y="250" width="270" height="100" rx="10"/>
+        <text class="nt" x="838" y="276">OneAPI 网关</text>
+        <text class="ns" x="838" y="298">deepseek-flash</text>
+        <text class="ns" x="838" y="316">conflict-v1 / transition-v1</text>
+        <text class="ns" x="838" y="334">仅候选调用，不在对话路径</text>
+
+        <!-- Dashboard -->
+        <rect class="node obs" x="360" y="450" width="390" height="105" rx="10"/>
+        <text class="nt" x="380" y="476">观测面 · 看板 + 27 题评估</text>
+        <text class="ns" x="380" y="498">质量 / 延迟 / 库健康 / 新鲜度</text>
+        <text class="ns" x="380" y="516">boards/hindsight-memory.html</text>
+        <text class="ns" x="380" y="534">30 分钟采集 · 每日 06:40 评估</text>
+
+        <!-- arrows -->
+        <path class="edge data" d="M314,78 L820,88"/>
+        <text class="lbl" x="500" y="70">retain / recall</text>
+
+        <path class="edge ctrl" d="M750,220 L820,165"/>
+        <text class="lbl" x="758" y="190">list / invalidate / restore</text>
+
+        <path class="edge ai" d="M750,310 L820,300"/>
+        <text class="lbl" x="760" y="292">judge（仅候选）</text>
+
+        <path class="edge ctrl" d="M360,350 L314,370"/>
+        <text class="lbl" x="300" y="342">run / ledger</text>
+
+        <path class="edge ctrl" d="M555,390 L555,450"/>
+        <text class="lbl" x="565" y="425">metrics</text>
+
+        <path class="edge data" d="M170,134 L170,170"/>
+        <text class="lbl" x="180" y="158">logs</text>
+
+        <text class="ns" x="24" y="570">实线：已实现　v0.3 的 transition-v1 复用同一控制面与台账</text>
+      </svg>
+    </div>
+    <div class="legend">
+      <span><i class="dot" style="background:var(--data)"></i>数据面</span>
+      <span><i class="dot" style="background:var(--accent)"></i>控制面</span>
+      <span><i class="dot" style="background:var(--ai)"></i>AI 网关</span>
+      <span><i class="dot" style="background:var(--muted)"></i>观测/日志</span>
+    </div>
+  </section>
+
+  <section id="layers">
+    <h2>三、分层架构 <span class="hint">六层，从上到下</span></h2>
+    <div class="tablewrap"><table>
+      <tr><th style="width:130px">层</th><th>组件</th><th style="width:200px">职责</th></tr>
+      <tr><td><b>L1 接入/触发</b></td><td>CLI · cron ·（未来）插件事件</td><td>什么时候跑治理</td></tr>
+      <tr><td><b>L2 采集/适配</b></td><td>HindsightAdapter / JsonFile / Memory · Capabilities · 快照</td><td>把后端变成统一 MemoryRecord</td></tr>
+      <tr><td><b>L3 决策</b></td><td>规则策略 · 候选生成 · AI 判官 · 机器闸门</td><td>该不该留、留哪条</td></tr>
+      <tr><td><b>L4 执行</b></td><td>Action Executor · restore</td><td>失效/归档/恢复</td></tr>
+      <tr><td><b>L5 保障</b></td><td>Ledger · verify-forgetting · auto-rollback · cache</td><td>可查、可回滚、可验证</td></tr>
+      <tr><td><b>L6 观测</b></td><td>看板 · 27 题评估 · Phoenix（可选）</td><td>只读结果</td></tr>
+    </table></div>
+  </section>
+
+  <section id="components">
+    <h2>四、组件清单 <span class="hint">代码/位置/状态</span></h2>
+    <div class="tablewrap"><table>
+      <tr><th style="width:80px">层</th><th style="width:190px">组件</th><th style="width:250px">代码/位置</th><th>职责</th><th style="width:90px">状态</th></tr>
+      <tr><td>接入</td><td>CLI</td><td><code>src/memgov/cli.py</code></td><td>scan / ai-govern / ai-transition / report / rollback / verify</td><td><span class="badge ok">v0.2</span></td></tr>
+      <tr><td>接入</td><td>cron</td><td>本机 Hermes cron</td><td>30 分钟看板、每日 06:40 评估</td><td><span class="badge ok">运行中</span></td></tr>
+      <tr><td>采集</td><td>HindsightAdapter</td><td><code>adapters/hindsight.py</code></td><td>list / invalidate / restore / recall</td><td><span class="badge ok">v0.2</span></td></tr>
+      <tr><td>采集</td><td>Capabilities</td><td><code>policies.py</code></td><td>缺能力跳过并告警</td><td><span class="badge ok">v0.2</span></td></tr>
+      <tr><td>决策</td><td>规则策略</td><td><code>policies.py</code></td><td>ttl / supersede / dedup / importance / scope_limit</td><td><span class="badge ok">v0.2</span></td></tr>
+      <tr><td>决策</td><td>候选生成</td><td><code>candidates.py</code></td><td>0.75×bigram + 0.25×锚点；scope 候选（v0.3）</td><td><span class="badge ok">v0.2</span></td></tr>
+      <tr><td>决策</td><td>AI 判官</td><td><code>ai.py</code> + <code>prompts.py</code></td><td>conflict-v1 两两判；transition-v1（设计）</td><td><span class="badge warn">部分</span></td></tr>
+      <tr><td>决策</td><td>机器闸门</td><td><code>ai.py</code> / <code>ai_governor.py</code></td><td>schema / 证据 / 置信度 / 新旧 / 上限 / 注入</td><td><span class="badge ok">v0.2</span></td></tr>
+      <tr><td>执行</td><td>Executor</td><td><code>engine.py</code></td><td>只失效；archive→invalidate；delete opt-in</td><td><span class="badge ok">v0.2</span></td></tr>
+      <tr><td>保障</td><td>Ledger</td><td><code>ledger.py</code></td><td>run JSON + ledger.jsonl + before + reason</td><td><span class="badge ok">v0.2</span></td></tr>
+      <tr><td>保障</td><td>verify-forgetting</td><td><code>ledger.py</code></td><td>F 率；id 或近似原文命中即失败</td><td><span class="badge ok">v0.2</span></td></tr>
+      <tr><td>保障</td><td>auto-rollback</td><td><code>ai_governor.py</code></td><td>F &gt; 阈值恢复本轮全部动作</td><td><span class="badge ok">v0.2</span></td></tr>
+      <tr><td>观测</td><td>记忆看板</td><td>工作单元 <code>memory_dashboard.py</code> + VM <code>collect.py</code></td><td>质量/延迟/库健康/新鲜度</td><td><span class="badge ok">运行中</span></td></tr>
+      <tr><td>观测</td><td>27 题评估</td><td><code>eval_hindsight.py</code></td><td>命中/MRR/噪声/陈旧/延迟</td><td><span class="badge ok">运行中</span></td></tr>
+      <tr><td>观测</td><td>Phoenix</td><td>Hermes OTel 插件</td><td>轨迹观测，不参与治理</td><td><span class="badge gray">可选</span></td></tr>
+    </table></div>
+  </section>
+
+  <section id="flows">
+    <h2>五、数据流 <span class="hint">四条链路</span></h2>
+    <div class="grid2">
+      <div class="box"><h3>1. 对话写入（实时）</h3><p>用户 → Hermes Agent → Hindsight 插件 <code>sync_turn</code> → Hindsight <code>POST /memories</code>（document_id=session）→ 抽取 facts / 生成 observations。</p></div>
+      <div class="box"><h3>2. 对话召回（实时）</h3><p>Hermes Agent → 插件 <code>prefetch</code> → 先无条件注入 <code>profile:dxq</code> → Hindsight <code>recall</code> → 过滤 &lt;0.65 → 记忆块进 system context。</p></div>
+      <div class="box"><h3>3. 治理运行（批处理）</h3><p>cron/CLI → memgov 读快照 → 规则策略/候选 → AI 判官 → 机器闸门 → dry-run 或 PATCH invalidated → 回查 F → 失败回滚 → ledger。</p></div>
+      <div class="box"><h3>4. 观测（定时）</h3><p>Hindsight logs/stats + 本机 agent.log → VM collect.py → memory_dashboard.py；27 题 eval → 看板 → boards 页面。</p></div>
+    </div>
+  </section>
+
+  <section id="interfaces">
+    <h2>六、接口与契约</h2>
+    <h3>Adapter 四方法</h3>
+    <div class="tablewrap"><table>
+      <tr><th>方法</th><th>输入</th><th>输出</th><th>说明</th></tr>
+      <tr><td><code>list_memories</code></td><td>limit</td><td>MemoryRecord[]</td><td>只返回可策展记录；Hindsight 只 world/experience</td></tr>
+      <tr><td><code>apply</code></td><td>Action</td><td>bool</td><td>只失效/归档/删除（opt-in）</td></tr>
+      <tr><td><code>restore</code></td><td>memory_id</td><td>bool</td><td><code>PATCH state=valid</code></td></tr>
+      <tr><td><code>recall</code></td><td>query, limit</td><td>结果</td><td>用于遗忘回查</td></tr>
+    </table></div>
+    <h3>Hindsight 接口</h3>
+    <div class="tablewrap"><table>
+      <tr><th style="width:110px">用途</th><th>接口</th></tr>
+      <tr><td>列表</td><td><code>GET /v1/default/banks/dxq/memories/list?state=valid&amp;limit&amp;offset</code></td></tr>
+      <tr><td>失效</td><td><code>PATCH /v1/default/banks/dxq/memories/{id}</code> <code>{state:"invalidated", reason}</code></td></tr>
+      <tr><td>恢复</td><td><code>PATCH .../{id}</code> <code>{state:"valid"}</code></td></tr>
+      <tr><td>召回</td><td><code>POST /v1/default/banks/dxq/memories/recall</code></td></tr>
+      <tr><td>库结构</td><td><code>GET /v1/default/banks/dxq/stats</code></td></tr>
+    </table></div>
+    <h3>写开关</h3>
+    <div class="tablewrap"><table>
+      <tr><th>层</th><th>开关</th><th>默认</th></tr>
+      <tr><td>CLI</td><td><code>--apply</code></td><td><span class="badge gray">关（dry-run）</span></td></tr>
+      <tr><td>进程</td><td><code>MEMGOV_ALLOW_WRITE=1</code></td><td><span class="badge gray">关</span></td></tr>
+      <tr><td>适配器</td><td><code>allow_write</code> / <code>allow_delete</code></td><td><span class="badge gray">关</span></td></tr>
+    </table></div>
+  </section>
+
+  <section id="deploy">
+    <h2>七、部署拓扑</h2>
+    <div class="tablewrap"><table>
+      <tr><th style="width:150px">位置</th><th>组件</th><th style="width:190px">端口/路径</th><th>备注</th></tr>
+      <tr><td>本机 macOS</td><td>Hermes Desktop / Gateway</td><td>—</td><td>对话、插件、state.db、agent.log</td></tr>
+      <tr><td>本机 macOS</td><td>memgov CLI / cron</td><td><code>~/agentdt/开源项目/memgov</code></td><td>治理运行、看板采集、评估</td></tr>
+      <tr><td>Aether VM</td><td>Hindsight 服务</td><td><code>172.20.12.116:8888</code></td><td>docker <code>hindsight</code>，pg0 数据卷</td></tr>
+      <tr><td>Aether VM</td><td>nginx boards</td><td><code>172.20.12.116:80</code></td><td>看板、设计文档</td></tr>
+      <tr><td>Aether VM</td><td>Phoenix（可选）</td><td><code>172.20.12.116:6006</code></td><td>OTel 轨迹，不参与治理</td></tr>
+      <tr><td>外部</td><td>OneAPI</td><td><code>oneapi.xgd.com/v1</code></td><td>deepseek-flash / embedding / rerank</td></tr>
+    </table></div>
+    <div class="callout warn"><b>安全：</b>Hindsight 8888/9999 无鉴权，只允许内网/tailnet；OneAPI key 只在进程环境/VM env，不进仓库、不进文档。</div>
+  </section>
+
+  <section id="failures">
+    <h2>八、失败模式与保障</h2>
+    <div class="tablewrap"><table>
+      <tr><th style="width:220px">失败</th><th>检测</th><th>处理</th></tr>
+      <tr><td>召回慢/断连</td><td>24h p90、取消数、<code>recall failed</code></td><td>看板标红；不改召回链路</td></tr>
+      <tr><td>retain 未可见</td><td>prefetch timeout 计数</td><td>看板显示；治理不依赖最新一轮</td></tr>
+      <tr><td>治理判错</td><td>证据子串、置信度、keep-newer、authority</td><td>拒绝动作</td></tr>
+      <tr><td>失效不生效</td><td>verify-forgetting F 率</td><td>超阈值自动回滚</td></tr>
+      <tr><td>并发写</td><td>apply 前重读 state/updated_at</td><td>跳过并告警</td></tr>
+      <tr><td>候选爆炸</td><td>scope 索引 + 四重上限</td><td>停手并报告</td></tr>
+    </table></div>
+  </section>
+
+  <section id="status">
+    <h2>九、现状与缺口</h2>
+    <div class="grid3">
+      <div class="tile"><div class="t">已实现 v0.2</div><b>规则 + AI 两两判 + 看板</b><p>5 类策略、conflict-v1、台账、回查、自动回滚、56 测试、CI。</p></div>
+      <div class="tile"><div class="t">设计中 v0.3</div><b>状态迁移</b><p>transition-v1、scope 索引与别名表、ai-transition、历史标记。</p></div>
+      <div class="tile"><div class="t">未做</div><b>事件 / 服务化 / 多 bank</b><p>事件触发、队列 worker、Postgres 台账、鉴权、告警、多租户。</p></div>
+    </div>
+    <div class="tablewrap"><table>
+      <tr><th style="width:200px">缺口</th><th>影响</th><th>建议</th></tr>
+      <tr><td>事件驱动触发</td><td>迁移事实要等下一次扫描</td><td>第二阶段插件发事件</td></tr>
+      <tr><td>服务化/队列</td><td>目前 CLI + cron，无并发 worker</td><td>需要常驻时再上</td></tr>
+      <tr><td>台账数据库</td><td>JSONL 不适合多机/高并发</td><td>Postgres/S3</td></tr>
+      <tr><td>鉴权</td><td>Hindsight 8888 无认证</td><td>只在内网，后续加反代</td></tr>
+      <tr><td>SLO/告警</td><td>看板只展示，不主动告警</td><td>接 cron 告警/企业微信</td></tr>
+    </table></div>
+  </section>
+
+  <section id="roadmap">
+    <h2>十、演进路线</h2>
+    <div class="tablewrap"><table>
+      <tr><th style="width:80px">阶段</th><th>内容</th><th style="width:230px">退出条件</th></tr>
+      <tr><td><b>P1</b></td><td>架构文档 + 状态迁移 dry-run</td><td>文档确认、候选可审</td></tr>
+      <tr><td><b>P2</b></td><td>transition-v1 判官 dry-run</td><td>30 对标注精确率 ≥90%</td></tr>
+      <tr><td><b>P3</b></td><td>小批量 apply（max_invalidations=3）</td><td>一周零回滚、抽检零误杀</td></tr>
+      <tr><td><b>P4</b></td><td>服务化：事件触发 + Postgres 台账 + 告警</td><td>多会话/多 bank 稳定</td></tr>
+    </table></div>
+  </section>
+
+  <section id="decisions">
+    <h2>十一、待拍板 <span class="hint">5 项，都给了推荐值</span></h2>
+    <div class="grid2">
+      <div class="box"><b>1. 治理跑在哪</b><p>本机 cron（现状） / Aether VM systemd。</p><span class="badge ok">推荐 VM systemd</span></div>
+      <div class="box"><b>2. 触发方式</b><p>cron 批量 / 插件事件。</p><span class="badge ok">先 cron，后事件</span></div>
+      <div class="box"><b>3. 台账存储</b><p>文件 JSONL / Postgres。</p><span class="badge ok">先文件，服务化时换 PG</span></div>
+      <div class="box"><b>4. 观测</b><p>看板 / Phoenix / 两者。</p><span class="badge ok">看板为主，Phoenix 可选</span></div>
+      <div class="box"><b>5. 多 bank</b><p>单 bank dxq / 多租户。</p><span class="badge ok">先单 bank</span></div>
+    </div>
+  </section>
+
+  <section id="relation">
+    <h2>与状态迁移设计的关系</h2>
+    <div class="callout">
+      <b>本文是系统级架构</b>：组件、数据流、部署、边界。<br>
+      <b><code>docs/state-transition-design.md</code> 是功能级设计</b>：transition-v1 的判据、候选、提示词、验收。<br>
+      状态迁移只是控制面里的一个新增决策器 + 一个新增 CLI 命令，不改变数据面与对话链路。
+    </div>
+  </section>
+
+  <div class="footer">
+    <span>memgov · 记忆治理引擎系统架构</span>
+    <span>设计稿 v0.1 · 2026-11-13</span>
+    <span>Agent 版：docs/system-architecture.md</span>
+    <span>状态迁移设计：docs/state-transition-design.md</span>
+  </div>
+</main>
+</div>
+</body>
+</html>

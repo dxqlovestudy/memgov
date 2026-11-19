@@ -47,6 +47,10 @@ reason. Invalidation is reversible: `memgov rollback --apply` restores the recor
 
 ## Architecture
 
+This diagram is **engine-internal**. For the system-level view — Hermes runtime,
+Hindsight data plane, AI gateway, ledger, dashboard and deployment topology — see
+[`docs/system-architecture.md`](docs/system-architecture.md).
+
 ```mermaid
 flowchart LR
   A[Memory backend] -->|list valid records| B[Adapter]
@@ -184,6 +188,7 @@ Adding a backend means implementing four methods: `list_memories`, `apply`, `res
 ```text
 memgov scan              evaluate policies (dry-run by default; --apply to mutate)
 memgov ai-govern         full-auto AI judgement: candidates -> model -> apply -> verify
+memgov ai-transition     state transitions: T -> old current-state assertions (dry-run)
 memgov report <run>      render a stored run
 memgov rollback <run>    restore memories invalidated by a run (--apply)
 memgov verify-forgetting <run>  measure whether invalidated facts still come back
@@ -222,9 +227,9 @@ The forgetting metric follows the *active forgetting* dimension of
 
 ## Status
 
-`v0.2.0` — alpha. The engine, adapters, ledger, CLI and full-auto AI judge are
-functional and covered by tests; the policy set is intentionally small. Not
-production-hardened.
+`v0.3.0` — alpha. The engine, adapters, ledger, CLI, full-auto AI judge and the
+state-transition dry-run (`ai-transition`, `transition-v1`) are functional and
+covered by tests; the policy set is intentionally small. Not production-hardened.
 
 Roadmap:
 
@@ -233,6 +238,7 @@ Roadmap:
 - [ ] scheduled service mode with per-bank policies
 - [ ] OpenTelemetry metrics
 - [x] AI-assisted conflict/supersede/duplicate judgement (`ai-govern`, full-auto)
+- [x] State-transition dry-run: scope-based candidates + `transition-v1` (`ai-transition`)
 - [ ] human approval queue (optional mode)
 - [ ] richer conflict evidence (quote spans, authority labels)
 

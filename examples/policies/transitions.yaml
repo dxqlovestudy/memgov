@@ -1,0 +1,29 @@
+# Alias groups for state-transition governance.
+#
+# A transition fact and an old assertion often use different names for the same
+# environment (VM hostname vs task id vs domain). Add those names to one group
+# so the candidate expander can find the pair without text similarity.
+aliases:
+  env:partner-dev:
+    - "1092143"
+    - "1092143 联调环境"
+    - "VM 联调环境"
+    - "合伙人前端联调环境"
+    - "aether-vm"
+    - "172.20.12.116"
+    - "agent-dev.jlpay.com"
+    - "manage-dev.jlpay.com"
+    - "/srv/partner-web"
+    - "/p/agent/"
+
+  env:dev:
+    - "dev 环境"
+    - "dev环境"
+    - "agent-dev.jlpay.com"
+    - "manage-dev.jlpay.com"
+
+  host:aether-vm:
+    - "aether-vm"
+    - "172.20.12.116"
+    - "100.69.57.44"
+    - "Aether VM"
