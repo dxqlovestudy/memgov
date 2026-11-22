@@ -401,6 +401,7 @@ class SupersedeGovernor:
         seeded_quota_ratio: float = 0.7,
         use_seeded: bool = True,
         use_duplicate: bool = True,
+        duplicate_confidence: Optional[float] = None,
         judge: Optional[SupersedeJudge] = None,
     ):
         self.adapter = adapter
@@ -420,6 +421,12 @@ class SupersedeGovernor:
         self.seeded_quota_ratio = seeded_quota_ratio
         self.use_seeded = use_seeded
         self.use_duplicate = use_duplicate
+        # A duplicate is a restatement, not a value change: invalidating the copy
+        # loses no information, while the judge scores restatements lower than
+        # supersessions (0.61-0.90 vs 0.86-0.95 on the Chinese pair set).
+        self.duplicate_confidence = (
+            min_confidence - 0.05 if duplicate_confidence is None else duplicate_confidence
+        )
         self.judge = judge or SupersedeJudge(
             config, cache=AICache(config.cache_path) if config.cache_path else AICache(None)
         )
@@ -479,7 +486,7 @@ class SupersedeGovernor:
                 and not supersede_ok
                 and self.use_duplicate
                 and dup_ratio >= self.vote_threshold
-                and dup_conf >= self.min_confidence
+                and dup_conf >= self.duplicate_confidence
             )
             kind = "supersede" if supersede_ok else ("duplicate" if duplicate_ok else "none")
             proposed.append(

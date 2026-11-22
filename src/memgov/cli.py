@@ -379,6 +379,7 @@ def cmd_ai_supersede(args: argparse.Namespace) -> int:
         seeded_top_k=args.seeded_top_k,
         use_seeded=args.use_seeded,
         use_duplicate=args.use_duplicate,
+        duplicate_confidence=args.duplicate_confidence,
     )
     report = governor.run()
     if args.json:
@@ -522,6 +523,12 @@ def main(argv: Optional[List[str]] = None) -> int:
     p_sup.add_argument("--seeded-quota-ratio", type=float, default=0.7, help="share of candidate slots reserved for the seeded channel")
     p_sup.add_argument("--no-seeded", dest="use_seeded", action="store_false", help="disable the conflict-seeded channel")
     p_sup.add_argument("--no-duplicate", dest="use_duplicate", action="store_false", help="disable DUPLICATE verdicts")
+    p_sup.add_argument(
+        "--duplicate-confidence",
+        type=float,
+        default=None,
+        help="confidence gate for DUPLICATE (default: --confidence minus 0.05)",
+    )
     p_sup.add_argument("--confidence", type=float, default=0.85, help="mean confidence gate (calibrated on deepseek-flash: 0.77-0.88 band)")
     p_sup.add_argument("--ai-base-url")
     p_sup.add_argument("--ai-model")
