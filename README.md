@@ -94,6 +94,11 @@ memgov scan --adapter hindsight \
 `scan` is a **dry-run** unless you pass `--apply`. Hindsight additionally requires
 `MEMGOV_ALLOW_WRITE=1`, so two independent switches must agree before anything mutates.
 
+> **Interpreter note.** Launch the CLI with an explicit interpreter path (for example
+> `/usr/bin/python3 -m memgov ...`) when a background shell or scheduler starts it: some
+> environments resolve a different `python3` there, and the symptom is a bare
+> `ModuleNotFoundError: No module named 'yaml'` before any memgov code runs.
+
 ## AI governance (full-auto, opt-in)
 
 The core engine stays deterministic. A separate `ai-govern` command adds an
