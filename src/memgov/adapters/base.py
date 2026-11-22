@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from datetime import datetime
 from typing import Dict, List, Optional
 
 from ..models import Action, MemoryRecord
@@ -19,8 +20,14 @@ class Adapter(ABC):
     capabilities = Capabilities()
 
     @abstractmethod
-    def list_memories(self, limit: Optional[int] = None) -> List[MemoryRecord]:
+    def list_memories(
+        self, limit: Optional[int] = None, since: Optional[datetime] = None
+    ) -> List[MemoryRecord]:
         raise NotImplementedError
+
+    def get_memory(self, memory_id: str) -> Optional[MemoryRecord]:
+        """Fetch one record by id; adapters that cannot do this return None."""
+        return None
 
     @abstractmethod
     def apply(self, action: Action) -> bool:

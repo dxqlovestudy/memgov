@@ -14,8 +14,16 @@ from .adapters import HindsightAdapter, JsonFileAdapter, MemoryAdapter
 from .adapters.base import Adapter
 from .ai import AIConfig
 from .ai_governor import AIGovernor
-from .ai_supersede import SupersedeGovernor, SupersedeLedger, summarize_supersede
+from .ai_supersede import (
+    SupersedeGovernor,
+    SupersedeJudge,
+    SupersedeLedger,
+    summarize_supersede,
+)
 from .ai_transition import TransitionGovernor, summarize_transition
+from .dedup_incremental import IncrementalDeduper
+from .dedup_incremental import summarize as summarize_incremental
+from .embeddings import EmbeddingClient, EmbeddingIndex
 from .engine import Engine
 from .ledger import Ledger, verify_forgetting
 from .models import MemoryRecord
@@ -134,6 +142,83 @@ def add_adapter_args(p: argparse.ArgumentParser) -> None:
     p.add_argument("--bank")
     p.add_argument("--timeout", type=int, default=30)
 
+
+def cmd_dedup_incremental(args: argparse.Namespace) -> int:
+    """Sweep records written in the last window and invalidate duplicates.
+
+    Two-tier decision: cos >= threshold is duplicate without an LLM; the 0.85..
+    threshold band goes to the three-framing judge when --judge is on. Anything
+    the judge does not confirm counts as uncertain and is left alone.
+    """
+    require_write_env(args)
+    base_url = (
+        args.embed_base_url
+        or args.ai_base_url
+        or os.environ.get("MEMGOV_AI_BASE_URL")
+        or os.environ.get("OPENAI_BASE_URL")
+    )
+    api_key = os.environ.get("MEMGOV_AI_API_KEY") or os.environ.get("OPENAI_API_KEY") or ""
+    if not base_url:
+        raise SystemExit("--embed-base-url (or MEMGOV_AI_BASE_URL) is required")
+    if not api_key:
+        raise SystemExit("MEMGOV_AI_API_KEY or OPENAI_API_KEY is required")
+
+    embedder = EmbeddingClient(
+        base_url=base_url,
+        api_key=api_key,
+        model=args.embed_model,
+        cache_path=os.path.join(args.runs_dir, "embed-cache.json"),
+    )
+    index = EmbeddingIndex(args.index or os.path.join(args.runs_dir, "embed-bank.npz"))
+    ledger = Ledger(args.runs_dir)
+    adapter = build_adapter(args, write=args.apply)
+
+    verify = None
+    if not args.no_judge:
+        model = args.ai_model or os.environ.get("MEMGOV_AI_MODEL") or "deepseek-flash"
+        config = AIConfig(
+            base_url=base_url,
+            api_key=api_key,
+            model=model,
+            confidence_threshold=args.confidence,
+            cache_path=os.path.join(args.runs_dir, "dedup-judge-cache.json"),
+            prompt_version="supersede-v2",
+        )
+        judge = SupersedeJudge(config)
+
+        def verify(keep, drop):  # noqa: F811 - closure over judge
+            verdicts = judge.judge(keep, drop, [], "")
+            if not verdicts:
+                return None
+            dup = [v for v in verdicts if v.verdict == "DUPLICATE"]
+            if not dup:
+                return None
+            ratio = len(dup) / len(verdicts)
+            conf = sum(v.confidence for v in dup) / len(dup)
+            if ratio >= args.vote_threshold and conf >= args.duplicate_confidence:
+                return "DUPLICATE"
+            return None
+
+    deduper = IncrementalDeduper(
+        adapter=adapter,
+        embedder=embedder,
+        index=index,
+        ledger=ledger,
+        threshold=args.threshold,
+        boundary_low=args.boundary_low,
+        require_signature=args.require_signature,
+        max_actions=args.max_actions,
+        dry_run=not args.apply,
+        verify_duplicate=verify,
+    )
+    report = deduper.run(window_minutes=args.window_minutes)
+    if args.json:
+        print(json.dumps(summary(report), ensure_ascii=False, indent=2))
+    else:
+        print(summarize_incremental(report))
+        if not args.apply and report.actions:
+            print("dry-run only; re-run with --apply (plus MEMGOV_ALLOW_WRITE=1) to mutate")
+    return 0
 
 def cmd_scan(args: argparse.Namespace) -> int:
     require_write_env(args)
@@ -465,6 +550,30 @@ def main(argv: Optional[List[str]] = None) -> int:
     add_adapter_args(p_rollback)
     p_rollback.add_argument("--apply", action="store_true")
     p_rollback.set_defaults(func=cmd_rollback)
+
+    p_di = sub.add_parser(
+        "dedup-incremental",
+        help="sweep records written in the last window and invalidate duplicates",
+    )
+    add_common(p_di)
+    add_adapter_args(p_di)
+    p_di.add_argument("--window-minutes", type=int, default=10)
+    p_di.add_argument("--threshold", type=float, default=0.92, help="cosine floor for a no-LLM duplicate")
+    p_di.add_argument("--boundary-low", type=float, default=0.85, help="lower bound of the judge band")
+    p_di.add_argument("--max-actions", type=int, default=50)
+    p_di.add_argument("--no-signature", dest="require_signature", action="store_false", default=True,
+                      help="disable the numeric/ID signature gate (not recommended)")
+    p_di.add_argument("--index", help="path of the embedding index npz")
+    p_di.add_argument("--embed-model", default="text-embedding-v4")
+    p_di.add_argument("--embed-base-url")
+    p_di.add_argument("--ai-base-url")
+    p_di.add_argument("--ai-model")
+    p_di.add_argument("--confidence", type=float, default=0.85)
+    p_di.add_argument("--duplicate-confidence", type=float, default=0.80)
+    p_di.add_argument("--vote-threshold", type=float, default=0.6)
+    p_di.add_argument("--no-judge", action="store_true", help="skip the LLM judge (deterministic tier only)")
+    p_di.add_argument("--apply", action="store_true")
+    p_di.set_defaults(func=cmd_dedup_incremental)
 
     p_verify = sub.add_parser("verify-forgetting", help="check invalidated memories stay forgotten")
     p_verify.add_argument("run")

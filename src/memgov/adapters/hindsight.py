@@ -5,6 +5,7 @@ import os
 import urllib.error
 import urllib.parse
 import urllib.request
+from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from ..models import Action, MemoryRecord, parse_dt
@@ -72,7 +73,9 @@ class HindsightAdapter(Adapter):
     def _bank_path(self, suffix: str) -> str:
         return f"/v1/default/banks/{urllib.parse.quote(self.bank)}{suffix}"
 
-    def list_memories(self, limit: Optional[int] = None) -> List[MemoryRecord]:
+    def list_memories(
+        self, limit: Optional[int] = None, since: Optional[datetime] = None
+    ) -> List[MemoryRecord]:
         out: List[MemoryRecord] = []
         offset = 0
         while True:
@@ -81,9 +84,12 @@ class HindsightAdapter(Adapter):
                 page = min(page, limit - len(out))
                 if page <= 0:
                     break
-            query = urllib.parse.urlencode(
-                {"state": "valid", "limit": page, "offset": offset, "time_field": "updated_at"}
-            )
+            params = {
+                "state": "valid", "limit": page, "offset": offset, "time_field": "updated_at",
+            }
+            if since is not None:
+                params["start_date"] = since.isoformat()
+            query = urllib.parse.urlencode(params)
             data = self._request("GET", self._bank_path(f"/memories/list?{query}"))
             items = data.get("items") or []
             total = int(data.get("total") or 0)
@@ -159,6 +165,16 @@ class HindsightAdapter(Adapter):
                 "refusing to mutate Hindsight without allow_write=True "
                 "and MEMGOV_ALLOW_WRITE=1"
             )
+
+    def get_memory(self, memory_id: str) -> Optional[MemoryRecord]:
+        try:
+            data = self._request("GET", self._bank_path(f"/memories/{memory_id}"))
+        except Exception:  # noqa: BLE001 - missing/deleted ids are not fatal here
+            return None
+        item = data.get("memory") or data
+        if not isinstance(item, dict) or not item.get("id"):
+            return None
+        return self._to_record(item)
 
     def apply(self, action: Action) -> bool:
         self._require_write()
