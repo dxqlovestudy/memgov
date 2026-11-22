@@ -64,3 +64,16 @@ def test_blocking_finds_near_duplicate_in_large_kind():
     actions = DedupPolicy(similarity=0.85).evaluate(records, ctx())
     assert [a.memory_id for a in actions] == ["old"]
     assert actions[0].replacement_id == "new"
+
+
+def test_ai_certified_duplicate_is_invalidated_before_similarity():
+    target = MemoryRecord(
+        id="t", text="交付前必须跑全量 mvn -o test", kind="world", created_at=now(),
+    )
+    flagged = MemoryRecord(
+        id="f", text="完全不同措辞但信息等价的另一段文字", kind="world",
+        created_at=now(), metadata={"duplicate_of": "t"},
+    )
+    actions = DedupPolicy(similarity=0.99).evaluate([target, flagged], ctx())
+    assert [(a.memory_id, a.replacement_id) for a in actions] == [("f", "t")]
+    assert "ai-certified" in actions[0].reason

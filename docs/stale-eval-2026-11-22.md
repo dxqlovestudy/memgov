@@ -1,5 +1,7 @@
 # STALE 外部评测记录（2026-11-22）
 
+> 优化记录页：http://172.20.12.116/boards/memgov-optimization.html（#ops 模块）
+
 > 目的：用公开基准验证 `memgov ai-supersede` 的判定质量，替代只看自家样本的口径。
 > 数据：`STALEproj/STALE` 的 `T1_T2_400_FULL.json`（400 条专家验证隐式冲突场景，CC-BY-4.0，292 MB，本地 `data/stale/`，不入库）。
 > 脚本：`scripts/stale_eval.py`（正样本召回 + 交叉配对负样本假阳性）。

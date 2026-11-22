@@ -247,3 +247,46 @@ def test_merge_candidate_pairs_dedupes_same_ordered_pair():
     assert len(merged) == 1
     assert merged[0].score == 0.7
     assert (merged[0].a.id, merged[0].b.id) == ("o", "n")
+
+
+def test_parse_verdict_accepts_duplicate():
+    old, new = rec("o", OLD_TEXT, T0), rec("n", NEW_TEXT, T1)
+    content = json.dumps(
+        {
+            "verdict": "DUPLICATE",
+            "confidence": 0.93,
+            "evidence_new": "地址改为 http://172.20.12.116:8888",
+            "evidence_old": "地址为 http://172.20.9.122:8888",
+            "reason": "同一信息不同措辞",
+        },
+        ensure_ascii=False,
+    )
+    assert parse_verdict(content, "x", new, old).verdict == "DUPLICATE"
+
+
+def test_governor_emits_dedupe_action_for_duplicate(tmp_path):
+    records = [rec("oldD", OLD_TEXT, T0), rec("newD", NEW_TEXT, T1)]
+    led = SupersedeLedger(str(tmp_path / "s.jsonl"))
+    gov = SupersedeGovernor(
+        FakeAdapter(records), _config(), ledger=Ledger(str(tmp_path)),
+        supersede_ledger=led, dry_run=False,
+        judge=FakeJudge(verdict="DUPLICATE", confidence=0.95), min_score=0.0, max_pairs=10,
+    )
+    report = gov.run()
+    assert [a.action for a in report.actions] == ["dedupe"]
+    assert report.actions[0].policy == "dedup"
+    assert led.duplicate_map() == {"oldD": "newD"}
+    assert led.map_by_new() == {}
+
+
+def test_governor_duplicate_can_be_disabled(tmp_path):
+    records = [rec("oldE", OLD_TEXT, T0), rec("newE", NEW_TEXT, T1)]
+    led = SupersedeLedger(str(tmp_path / "s.jsonl"))
+    gov = SupersedeGovernor(
+        FakeAdapter(records), _config(), ledger=Ledger(str(tmp_path)),
+        supersede_ledger=led, dry_run=False, use_duplicate=False,
+        judge=FakeJudge(verdict="DUPLICATE", confidence=0.95), min_score=0.0, max_pairs=10,
+    )
+    report = gov.run()
+    assert report.actions == []
+    assert led.duplicate_map() == {}

@@ -214,7 +214,7 @@ def parse_verdict(content: str, framing: str, new: MemoryRecord, old: MemoryReco
     if data is None:
         # Last resort: the verdict word often survives even when the JSON does not.
         # Confidence stays 0 so a malformed reply can never clear the accept gate.
-        match = re.search(r"(?i)\b(SUPERSEDES|INDEPENDENT)\b", raw)
+        match = re.search(r"(?i)\b(SUPERSEDES|DUPLICATE|INDEPENDENT)\b", raw)
         if not match:
             return SupersedeVerdict(framing, "INDEPENDENT", 0.0, reason="unparsable")
         return SupersedeVerdict(
@@ -225,8 +225,8 @@ def parse_verdict(content: str, framing: str, new: MemoryRecord, old: MemoryReco
         )
 
     verdict = str(data.get("verdict", "")).strip().upper()
-    if verdict not in {"SUPERSEDES", "INDEPENDENT"}:
-        match = re.search(r"(?i)\b(SUPERSEDES|INDEPENDENT)\b", raw)
+    if verdict not in {"SUPERSEDES", "DUPLICATE", "INDEPENDENT"}:
+        match = re.search(r"(?i)\b(SUPERSEDES|DUPLICATE|INDEPENDENT)\b", raw)
         if not match:
             return SupersedeVerdict(framing, "INDEPENDENT", 0.0, reason="bad_verdict")
         verdict = match.group(1).upper()
@@ -238,7 +238,7 @@ def parse_verdict(content: str, framing: str, new: MemoryRecord, old: MemoryReco
 
     new_ev = str(data.get("evidence_new", "") or "").strip()
     old_ev = str(data.get("evidence_old", "") or "").strip()
-    if verdict == "SUPERSEDES":
+    if verdict in {"SUPERSEDES", "DUPLICATE"}:
         # Evidence must be a contiguous substring of the quoted record.
         if not new_ev or new_ev not in (new.text or ""):
             return SupersedeVerdict(framing, "INDEPENDENT", 0.0, reason="evidence_new_not_in_text")
@@ -354,10 +354,28 @@ class SupersedeLedger:
                 if old_id in accepted.get(new_id, []):
                     accepted[new_id].remove(old_id)
                 continue
+            if entry.get("action") == "duplicate":
+                continue
             accepted.setdefault(new_id, [])
             if old_id not in accepted[new_id]:
                 accepted[new_id].append(old_id)
         return {k: v for k, v in accepted.items() if v}
+
+
+    def duplicate_map(self) -> Dict[str, str]:
+        """old_id -> new_id for accepted duplicates; a later revoke removes one."""
+        out: Dict[str, str] = {}
+        for entry in self.entries():
+            action = entry.get("action")
+            old_id = str(entry.get("old_id", ""))
+            new_id = str(entry.get("new_id", ""))
+            if not old_id or not new_id:
+                continue
+            if action == "duplicate":
+                out[old_id] = new_id
+            elif action == "revoke" and entry.get("kind") == "duplicate":
+                out.pop(old_id, None)
+        return out
 
 
 class SupersedeGovernor:
@@ -382,6 +400,7 @@ class SupersedeGovernor:
         seeded_top_k: int = 3,
         seeded_quota_ratio: float = 0.7,
         use_seeded: bool = True,
+        use_duplicate: bool = True,
         judge: Optional[SupersedeJudge] = None,
     ):
         self.adapter = adapter
@@ -400,6 +419,7 @@ class SupersedeGovernor:
         self.seeded_top_k = seeded_top_k
         self.seeded_quota_ratio = seeded_quota_ratio
         self.use_seeded = use_seeded
+        self.use_duplicate = use_duplicate
         self.judge = judge or SupersedeJudge(
             config, cache=AICache(config.cache_path) if config.cache_path else AICache(None)
         )
@@ -446,9 +466,22 @@ class SupersedeGovernor:
             verdicts = self.judge.judge(new, old, pair.shared_anchors, conflict)
             judged += 1
             sup = [v for v in verdicts if v.verdict == "SUPERSEDES"]
+            dup = [v for v in verdicts if v.verdict == "DUPLICATE"]
             ratio = len(sup) / len(verdicts) if verdicts else 0.0
             mean_conf = sum(v.confidence for v in sup) / len(sup) if sup else 0.0
-            ok = bool(verdicts) and ratio >= self.vote_threshold and mean_conf >= self.min_confidence
+            dup_ratio = len(dup) / len(verdicts) if verdicts else 0.0
+            dup_conf = sum(v.confidence for v in dup) / len(dup) if dup else 0.0
+            supersede_ok = (
+                bool(verdicts) and ratio >= self.vote_threshold and mean_conf >= self.min_confidence
+            )
+            duplicate_ok = (
+                bool(verdicts)
+                and not supersede_ok
+                and self.use_duplicate
+                and dup_ratio >= self.vote_threshold
+                and dup_conf >= self.min_confidence
+            )
+            kind = "supersede" if supersede_ok else ("duplicate" if duplicate_ok else "none")
             proposed.append(
                 {
                     "new_id": new.id,
@@ -459,45 +492,68 @@ class SupersedeGovernor:
                     "votes": {v.framing: v.verdict for v in verdicts},
                     "supersede_ratio": round(ratio, 3),
                     "mean_confidence": round(mean_conf, 3),
-                    "accepted": ok,
+                    "duplicate_ratio": round(dup_ratio, 3),
+                    "duplicate_confidence": round(dup_conf, 3),
+                    "kind": kind,
+                    "accepted": kind != "none",
                     "reason": "; ".join(v.reason for v in verdicts if v.reason)[:160],
                 }
             )
-            if not ok:
+            if kind == "none":
                 continue
             if accepted >= self.max_accepts:
                 report.warnings.append(f"max_accepts={self.max_accepts} reached; remaining pairs skipped")
                 break
             accepted += 1
-            evidence = next((v for v in sup if v.evidence_new), sup[0] if sup else None)
-            reason = (
-                f"supersede-v1 {len(sup)}/{len(verdicts)} frames, mean_conf={mean_conf:.2f}"
+            evidence = next(
+                (v for v in (sup if kind == "supersede" else dup) if v.evidence_new),
+                (sup or dup)[0] if (sup or dup) else None,
             )
-            action = Action(
-                action="stamp",
-                memory_id=old.id,
-                policy="supersede",
-                reason=reason,
-                replacement_id=new.id,
-                before={
-                    "old_text": (old.text or "")[:300],
-                    "new_text": (new.text or "")[:300],
-                    "evidence_new": evidence.evidence_new if evidence else "",
-                    "evidence_old": evidence.evidence_old if evidence else "",
-                },
-                reversible=True,
-            )
+            if kind == "supersede":
+                reason = f"supersede-v1 {len(sup)}/{len(verdicts)} frames, mean_conf={mean_conf:.2f}"
+                action = Action(
+                    action="stamp",
+                    memory_id=old.id,
+                    policy="supersede",
+                    reason=reason,
+                    replacement_id=new.id,
+                    before={
+                        "old_text": (old.text or "")[:300],
+                        "new_text": (new.text or "")[:300],
+                        "evidence_new": evidence.evidence_new if evidence else "",
+                        "evidence_old": evidence.evidence_old if evidence else "",
+                    },
+                    reversible=True,
+                )
+                ledger_action = "stamp"
+            else:
+                reason = f"duplicate-v1 {len(dup)}/{len(verdicts)} frames, mean_conf={dup_conf:.2f}"
+                action = Action(
+                    action="dedupe",
+                    memory_id=old.id,
+                    policy="dedup",
+                    reason=reason,
+                    replacement_id=new.id,
+                    before={
+                        "old_text": (old.text or "")[:300],
+                        "new_text": (new.text or "")[:300],
+                        "evidence_new": evidence.evidence_new if evidence else "",
+                        "evidence_old": evidence.evidence_old if evidence else "",
+                    },
+                    reversible=True,
+                )
+                ledger_action = "duplicate"
             if not self.dry_run:
                 self.supersede_ledger.append(
                     {
-                        "action": "stamp",
+                        "action": ledger_action,
                         "ts": datetime.now(timezone.utc).isoformat(),
                         "new_id": new.id,
                         "old_id": old.id,
                         "prompt_version": SUPERSEDE_PROMPT_VERSION,
                         "votes": {v.framing: v.verdict for v in verdicts},
-                        "supersede_ratio": round(ratio, 3),
-                        "mean_confidence": round(mean_conf, 3),
+                        "ratio": round(ratio if kind == "supersede" else dup_ratio, 3),
+                        "mean_confidence": round(mean_conf if kind == "supersede" else dup_conf, 3),
                         "evidence_new": evidence.evidence_new if evidence else "",
                         "evidence_old": evidence.evidence_old if evidence else "",
                         "new_text": (new.text or "")[:400],
@@ -517,6 +573,8 @@ class SupersedeGovernor:
             "seeded_pairs": len(seeded_pairs),
             "judged_pairs": judged,
             "accepted": accepted,
+            "accepted_supersede": sum(1 for x in proposed if x.get("kind") == "supersede"),
+            "accepted_duplicate": sum(1 for x in proposed if x.get("kind") == "duplicate"),
             "limits": {
                 "max_pairs": self.max_pairs,
                 "max_accepts": self.max_accepts,
@@ -546,7 +604,8 @@ def summarize_supersede(report: ScanReport) -> str:
         f"- mode: **{'dry-run' if report.dry_run else 'APPLY'}**",
         f"- records scanned: {report.records_scanned}",
         f"- candidate pairs: {ai.get('candidate_pairs', 0)}  judged: {ai.get('judged_pairs', 0)}",
-        f"- accepted: {ai.get('accepted', 0)}",
+        f"- accepted: {ai.get('accepted', 0)}"
+        f" (supersede {ai.get('accepted_supersede', 0)} / duplicate {ai.get('accepted_duplicate', 0)})",
         "",
         f"usage: {json.dumps(ai.get('usage', {}), ensure_ascii=False)}",
         "",

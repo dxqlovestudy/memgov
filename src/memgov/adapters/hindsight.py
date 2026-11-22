@@ -39,6 +39,7 @@ class HindsightAdapter(Adapter):
         page_size: int = 500,
         include_kinds: Optional[List[str]] = None,
         supersede_ledger: Optional[Dict[str, List[str]]] = None,
+        duplicate_ledger: Optional[Dict[str, str]] = None,
     ):
         self.base_url = base_url.rstrip("/")
         self.bank = bank
@@ -51,6 +52,7 @@ class HindsightAdapter(Adapter):
         # store metadata via PATCH, so the ledger is injected here as explicit evidence
         # for SupersedePolicy (which still never guesses from similarity).
         self.extra_supersedes = supersede_ledger or {}
+        self.extra_duplicates = duplicate_ledger or {}
         self.capabilities.delete = allow_delete
 
     def _request(self, method: str, path: str, body: Optional[Dict[str, Any]] = None) -> Any:
@@ -101,6 +103,11 @@ class HindsightAdapter(Adapter):
                         if old_id not in merged:
                             merged.append(old_id)
                     meta["supersedes"] = merged
+                    record.metadata = meta
+                dup_target = self.extra_duplicates.get(record.id)
+                if dup_target:
+                    meta = dict(record.metadata or {})
+                    meta.setdefault("duplicate_of", dup_target)
                     record.metadata = meta
                 out.append(record)
                 if limit is not None and len(out) >= limit:

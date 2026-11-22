@@ -183,7 +183,7 @@ def transition_messages(transition, assertion, entity) -> list[Dict[str, str]]:
     ]
 
 
-SUPERSEDE_PROMPT_VERSION = "supersede-v1"
+SUPERSEDE_PROMPT_VERSION = "supersede-v2"
 
 SUPERSEDE_FRAMINGS = (
     "direct_replacement",
@@ -202,16 +202,22 @@ SUPERSEDE_SYSTEM_PROMPT = """你是记忆取代裁判（supersede-v1，视角 {f
 - adversarial_compatibility：尽力论证两者可以同时成立（不同实体、不同维度、不同时间窗）；
   只要能给出合理的共存解释，就判 INDEPENDENT。
 
+三种结论：
+- SUPERSEDES：同一属性、不同取值，NEW 是当前口径。
+- DUPLICATE：两条表达同一件事，只是措辞或详略不同，**没有取值差异**（信息等价）。
+- INDEPENDENT：不同对象/不同属性/各自成立。
+
 硬规则：
 1. 只依据两条原文，不引入外部知识。
-2. 判 SUPERSEDES 必须给出证据：NEW 与 OLD 各一段“连续原文子串”。
+2. 判 SUPERSEDES 或 DUPLICATE 必须给出证据：NEW 与 OLD 各一段“连续原文子串”。
 3. 同一属性、不同取值才算取代；“相关”“相似”“互补”“同一主题”都不算。
-4. 拿不准判 INDEPENDENT：宁可漏标，不可错标。
-5. 只输出 JSON，不要解释。
+4. 措辞不同但要点完全相同的，判 DUPLICATE；随后又出现新取值（时间/版本/地址变化）的，判 SUPERSEDES。
+5. 拿不准判 INDEPENDENT：宁可漏标，不可错标。
+6. 只输出 JSON，不要解释。
 
 输出 JSON：
 {{
-  "verdict": "SUPERSEDES" | "INDEPENDENT",
+  "verdict": "SUPERSEDES" | "DUPLICATE" | "INDEPENDENT",
   "confidence": 0.0,
   "evidence_new": "<NEW 原文连续片段>",
   "evidence_old": "<OLD 原文连续片段>",

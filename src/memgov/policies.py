@@ -180,9 +180,29 @@ class DedupPolicy(Policy):
 
     def evaluate(self, records: List[MemoryRecord], ctx: PolicyContext) -> List[Action]:
         actions: List[Action] = []
-        groups: Dict[str, List[MemoryRecord]] = {}
+        # AI-certified duplicates first: `memgov ai-supersede` can prove two records
+        # say the same thing in different words, which the lexical similarity below
+        # cannot see. These carry explicit evidence, so they never rely on a guess.
+        claimed: set = set()
         for rec in records:
             if rec.state != "valid":
+                continue
+            target = (rec.metadata or {}).get("duplicate_of")
+            if not target:
+                continue
+            claimed.add(rec.id)
+            actions.append(
+                Action(
+                    action="invalidate",
+                    memory_id=rec.id,
+                    policy="dedup",
+                    reason=f"duplicate_of:{target} (ai-certified)",
+                    replacement_id=str(target),
+                )
+            )
+        groups: Dict[str, List[MemoryRecord]] = {}
+        for rec in records:
+            if rec.state != "valid" or rec.id in claimed:
                 continue
             groups.setdefault(rec.kind or "fact", []).append(rec)
 
