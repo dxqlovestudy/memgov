@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>改造 3：写入侧重复治理</title>
+<style>
+:root{--fg:#1f2328;--muted:#59636e;--bg:#ffffff;--card:#f6f8fa;--line:#d1d9e0;--accent:#0969da}
+*{box-sizing:border-box}
+body{margin:0;font:15px/1.7 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;color:var(--fg);background:var(--bg)}
+.wrap{display:flex;max-width:1280px;margin:0 auto;align-items:flex-start}
+nav{position:sticky;top:0;align-self:flex-start;width:280px;max-height:100vh;overflow:auto;padding:28px 18px;border-right:1px solid var(--line);font-size:13.5px}
+nav .tag{display:inline-block;font-size:12px;padding:2px 8px;border:1px solid var(--line);border-radius:999px;color:var(--muted);margin-bottom:14px}
+nav a{display:block;color:var(--muted);text-decoration:none;padding:4px 0 4px 10px;border-left:2px solid transparent;line-height:1.45}
+nav a:hover{color:var(--accent);border-left-color:var(--accent)}
+nav a.lv3{padding-left:24px;font-size:12.5px}
+main{flex:1;min-width:0;padding:32px 40px 80px}
+h1{font-size:26px;line-height:1.35;margin:0 0 10px}
+h2{font-size:20px;margin:38px 0 12px;padding-top:14px;border-top:1px solid var(--line)}
+h3{font-size:16px;margin:24px 0 8px}
+p{margin:10px 0}
+blockquote{margin:14px 0;padding:10px 14px;background:var(--card);border-left:3px solid var(--accent);color:var(--muted);border-radius:0 6px 6px 0}
+.tablewrap{overflow-x:auto;margin:14px 0;border:1px solid var(--line);border-radius:8px}
+table{border-collapse:collapse;width:100%;min-width:640px;font-size:13.5px}
+th,td{padding:8px 12px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top;overflow-wrap:anywhere}
+th{background:var(--card);font-weight:600;white-space:nowrap}
+tr:last-child td{border-bottom:0}
+code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;background:var(--card);padding:1px 5px;border-radius:4px;overflow-wrap:anywhere;word-break:break-word}
+pre{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:14px;overflow:auto}
+pre code{background:none;padding:0}
+ul,ol{padding-left:22px}
+hr{border:0;border-top:1px solid var(--line);margin:28px 0}
+.note{font-size:12.5px;color:var(--muted)}
+@media (max-width:900px){.wrap{display:block}nav{position:static;width:auto;max-height:none;border-right:0;border-bottom:1px solid var(--line)}main{padding:20px}}
+@media print{nav{display:none}main{padding:0}.tablewrap{overflow:visible}}
+</style></head>
+<body><div class="wrap">
+<nav><div class="tag">技术方案 · 设计稿</div><a class="" href="#1-结论摘要">1. 结论摘要</a><a class="" href="#2-问题与证据">2. 问题与证据</a><a class="" href="#3-目标与非目标">3. 目标与非目标</a><a class="" href="#4-数据模型">4. 数据模型</a><a class="lv3" href="#4-1-新增实体">4.1 新增实体</a><a class="lv3" href="#4-2-状态机-复用现有">4.2 状态机（复用现有）</a><a class="lv3" href="#4-3-签名定义">4.3 签名定义</a><a class="" href="#5-流水线">5. 流水线</a><a class="" href="#6-契约">6. 契约</a><a class="lv3" href="#6-1-命令">6.1 命令</a><a class="lv3" href="#6-2-输出">6.2 输出</a><a class="lv3" href="#6-3-不确定态">6.3 不确定态</a><a class="" href="#7-影响面-本改造无-ai-提示词">7. 影响面（本改造无 AI 提示词）</a><a class="" href="#8-动作矩阵与安全闸门">8. 动作矩阵与安全闸门</a><a class="" href="#9-验收">9. 验收</a><a class="lv3" href="#9-1-必须命中的正例">9.1 必须命中的正例</a><a class="lv3" href="#9-2-必须保留的反例">9.2 必须保留的反例</a><a class="lv3" href="#9-3-量化阈值">9.3 量化阈值</a><a class="lv3" href="#9-4-复跑命令">9.4 复跑命令</a><a class="" href="#10-阶段">10. 阶段</a><a class="" href="#11-风险与待拍板项">11. 风险与待拍板项</a><a class="lv3" href="#11-1-对象状态台账">11.1 对象状态台账</a><a class="lv3" href="#11-2-文件级实现清单">11.2 文件级实现清单</a></nav>
+<main><hr>
+<p>status: design-draft version: 1.0 date: 2026-11-22 target: memgov 写入侧重复治理（改造 3） related: - docs/zh-eval-2026-11-22.md - docs/design-3-write-side-dedup.html</p>
+<hr>
+<h1>改造 3 设计稿：写入侧重复治理</h1>
+<h2 id="1-结论摘要">1. 结论摘要</h2>
+<ul><li><strong>做什么</strong>：给 memgov 增加「增量去重」能力——每 5 分钟处理最近 10 分钟新增的 facts，用「embedding 近邻 + 数字/ID 签名」判定重复，命中即软失效。</li><li><strong>不做什么</strong>：不改 Hermes 写入插件、不动改造 1 的取代判官、不启用硬删、不做 observation 层治理。</li><li><strong>最大风险</strong>：cron 滞后 5 分钟，这 5 分钟内的重复仍会参与召回；误判靠台账 + <code>rollback</code> 兜底。</li></ul>
+<h2 id="2-问题与证据">2. 问题与证据</h2>
+<div class="tablewrap"><table><thead><tr><th>证据</th><th>数值</th><th>采集方式</th></tr></thead><tbody><tr><td>每天新增 facts</td><td>约 330 条</td><td>11-22 全天 <code>created_at</code> 统计</td></tr><tr><td>新增中重复占比</td><td>62%</td><td>42 对候选判官结果</td></tr><tr><td>全库 cos≥0.92 重复</td><td>1,135 对 / 622 条 / 153 簇</td><td>11,548 条全量 embedding</td></tr><tr><td>最大重复簇</td><td>92 条「Multica 身份声明，仅 issue ID 不同」</td><td>簇内抽样 12 条</td></tr><tr><td>现有清扫速度</td><td>28 条 / 次</td><td>今天 <code>scan --apply</code> 实测</td></tr><tr><td>产生 vs 清扫</td><td>330 / 天 vs 28 / 次</td><td>差一个数量级</td></tr></tbody></table></div>
+<p><strong>现有机制为什么不够</strong>：</p>
+<ol><li><code>dedup</code> 策略是字面 bigram Jaccard，在 20 对人工金标上 <strong>0/8 命中</strong>（换词就掉分）。</li><li><code>ai-supersede</code> 的候选池上限 60 对，全库 1,041 条含冲突词记录，配不齐。</li><li>两者都靠人工触发，没有定时机制。</li></ol>
+<h2 id="3-目标与非目标">3. 目标与非目标</h2>
+<div class="tablewrap"><table><thead><tr><th>目标</th><th>非目标</th></tr></thead><tbody><tr><td>新写入的重复在 10 分钟内被清除</td><td>追求 0 延迟拦截（那要改插件，见方案 A）</td></tr><tr><td>拦截率 ≥95%，误判率 ≤1%</td><td>不做 observation 层治理（负收益已实测）</td></tr><tr><td>完全复用现有台账 / 回滚 / 回查机制</td><td>不改改造 1 的判定逻辑</td></tr><tr><td>不改对话关键路径</td><td>不引入新的 LLM 依赖（先只用确定性比对）</td></tr></tbody></table></div>
+<h2 id="4-数据模型">4. 数据模型</h2>
+<h3 id="4-1-新增实体">4.1 新增实体</h3>
+<div class="tablewrap"><table><thead><tr><th>实体</th><th>字段</th><th>说明</th></tr></thead><tbody><tr><td><code>EmbeddingIndex</code></td><td><code>ids: str[]</code>、<code>vectors: float32[n,1024]</code>、<code>sig: str[]</code></td><td>npz 落盘，支持增量 append</td></tr><tr><td><code>DedupCandidate</code></td><td><code>new_id</code>、<code>old_id</code>、<code>cos</code>、<code>sig_match</code>、<code>verdict</code></td><td>候选对</td></tr><tr><td><code>IncrementalRun</code></td><td><code>window_start/end</code>、<code>scanned</code>、<code>candidates</code>、<code>actions</code></td><td>每次运行报告</td></tr></tbody></table></div>
+<h3 id="4-2-状态机-复用现有">4.2 状态机（复用现有）</h3>
+<pre><code>valid ──(cos≥0.92 且签名一致)──&gt; invalidated
+  ↑                                    │
+  └──────── rollback ──────────────────┘</code></pre>
+<h3 id="4-3-签名定义">4.3 签名定义</h3>
+<pre><code>token_re = r&quot;[0-9a-f]{8,}|\d+\.\d+|\d+&quot;
+sig(text) = tuple(sorted(set(token_re.findall(text))))   # 数字/ID 集合</code></pre>
+<p><strong>为什么加这条</strong>：observation 层实测 673 个簇里，<strong>325 个（48%）是因为数字/ID 不同而误判</strong>（如「issue ID 为 01a1c487」vs「01a1c34b」cos=1.000）。<code>sig</code> 不同一律不判重复。</p>
+<h2 id="5-流水线">5. 流水线</h2>
+<div class="tablewrap"><table><thead><tr><th>步</th><th>输入</th><th>动作</th><th>输出</th><th>失败处理</th></tr></thead><tbody><tr><td>1</td><td>库内 <code>updated_at ≥ now-10min</code> 的 valid 记录</td><td>拉增量</td><td><code>new[]</code></td><td>拉取失败 → 本轮跳过，记 warning</td></tr><tr><td>2</td><td><code>new[]</code> 文本</td><td>取 embedding（缓存优先）</td><td>向量</td><td>API 失败 → 重试 3 次，仍失败则本轮跳过</td></tr><tr><td>3</td><td>向量 + 全量索引</td><td>余弦 KNN（cos ≥ 0.92）</td><td>候选对</td><td>索引缺失 → 触发全量重建</td></tr><tr><td>4</td><td>候选对</td><td>签名比对（<code>sig</code> 必须相等）</td><td>过滤后候选</td><td>—</td></tr><tr><td>5</td><td>候选对</td><td>生成 <code>Action(invalidate, policy=dedup)</code></td><td>动作</td><td>—</td></tr><tr><td>6</td><td>动作</td><td>dry-run 只记账；apply 则 PATCH</td><td>台账</td><td>单条失败继续，记 error</td></tr><tr><td>7</td><td>run 文件</td><td>60 分钟后回查 <code>state</code></td><td>验证结果</td><td>失败率 &gt;10% → 告警</td></tr></tbody></table></div>
+<h2 id="6-契约">6. 契约</h2>
+<h3 id="6-1-命令">6.1 命令</h3>
+<pre><code>memgov dedup-incremental \
+  --adapter hindsight --base-url &lt;url&gt; --bank dxq \
+  --window-minutes 10 \
+  --threshold 0.92 \
+  --require-signature \
+  [--apply]          # 不带则 dry-run</code></pre>
+<h3 id="6-2-输出">6.2 输出</h3>
+<pre><code>{
+  &quot;run_id&quot;: &quot;...&quot;,
+  &quot;window&quot;: {&quot;start&quot;: &quot;2026-11-22T17:00:00Z&quot;, &quot;end&quot;: &quot;2026-11-22T17:10:00Z&quot;},
+  &quot;records_scanned&quot;: 18,
+  &quot;candidates&quot;: 3,
+  &quot;actions&quot;: 3,
+  &quot;applied&quot;: 3,
+  &quot;errors&quot;: 0,
+  &quot;uncertain&quot;: 0
+}</code></pre>
+<h3 id="6-3-不确定态">6.3 不确定态</h3>
+<div class="tablewrap"><table><thead><tr><th>情况</th><th>标记</th><th>动作</th></tr></thead><tbody><tr><td>cos 在 0.85–0.92</td><td><code>uncertain</code></td><td><strong>不动作</strong>，记入报告待人工看</td></tr><tr><td>签名不一致</td><td><code>sig_mismatch</code></td><td>不动作</td></tr><tr><td>embedding 取不到</td><td><code>skipped</code></td><td>不动作</td></tr></tbody></table></div>
+<h2 id="7-影响面-本改造无-ai-提示词">7. 影响面（本改造无 AI 提示词）</h2>
+<div class="tablewrap"><table><thead><tr><th>被写字段</th><th>读方</th><th>判定方</th></tr></thead><tbody><tr><td><code>state</code></td><td>recall（只返回 valid）</td><td><code>dedup-incremental</code></td></tr><tr><td><code>reason</code></td><td>审计 / 台账</td><td>同上</td></tr><tr><td><code>runs/dedup-ledger.jsonl</code></td><td>memgov rollback</td><td>同上</td></tr><tr><td><code>runs/embed-bank.npz</code></td><td>KNN 查询</td><td>增量维护</td></tr></tbody></table></div>
+<p><strong>抽取侧已落地的配套</strong>（不属于本改造，但相关）：<code>retain_extraction_mode=custom</code> + 6 条规则，解决粒度粗（拆条已实测生效）。</p>
+<h2 id="8-动作矩阵与安全闸门">8. 动作矩阵与安全闸门</h2>
+<div class="tablewrap"><table><thead><tr><th>条件</th><th>动作</th><th>可逆</th></tr></thead><tbody><tr><td>cos ≥ 0.92 且 <code>sig</code> 相等且 <code>state=valid</code></td><td><code>invalidate(old_id)</code> + 台账</td><td>✅</td></tr><tr><td>cos 0.85–0.92</td><td>仅记录，不动作</td><td>—</td></tr><tr><td><code>sig</code> 不等</td><td>仅记录</td><td>—</td></tr><tr><td>记录属于最近 1 分钟内写入</td><td>跳过（避免与新写入竞争）</td><td>—</td></tr><tr><td>单轮动作 &gt; 50 条</td><td><strong>中止并告警</strong>（防索引错乱导致批量误删）</td><td>—</td></tr></tbody></table></div>
+<p><strong>闸门</strong>：</p>
+<ul><li><code>--apply</code> + <code>MEMGOV_ALLOW_WRITE=1</code> 双开关。</li><li>每轮上限 50 条（<code>max_actions</code>）。</li><li>台账 before 快照必填。</li><li>回滚：<code>memgov rollback runs/&lt;run_id&gt;.json --apply</code>。</li></ul>
+<h2 id="9-验收">9. 验收</h2>
+<h3 id="9-1-必须命中的正例">9.1 必须命中的正例</h3>
+<div class="tablewrap"><table><thead><tr><th>样本</th><th>判据</th></tr></thead><tbody><tr><td>92 条 Multica 声明簇（同 issue ID 的变体）</td><td>应清到 1 条</td></tr><tr><td>「该次机检的结果为 GATE\</td><td>exit=0\</td><td>red=0\</td><td>report=reply.md」同簇 12 条</td><td>应清到 1 条</td></tr><tr><td>「状态板当前没有进行中事项」同簇 12 条</td><td>应清到 1 条</td></tr></tbody></table></div>
+<h3 id="9-2-必须保留的反例">9.2 必须保留的反例</h3>
+<div class="tablewrap"><table><thead><tr><th>样本</th><th>判据</th></tr></thead><tbody><tr><td>「issue ID 为 01a1c487」vs「01a1c34b」（cos=1.000）</td><td><strong>必须不动作</strong>（签名不同）</td></tr><tr><td>「白名单两条」vs「白名单三条」（不同属性）</td><td>必须不动作</td></tr><tr><td>「模板ID可重复」vs「模板ID必填」</td><td>必须不动作（属性不同）</td></tr></tbody></table></div>
+<h3 id="9-3-量化阈值">9.3 量化阈值</h3>
+<div class="tablewrap"><table><thead><tr><th>指标</th><th>目标</th><th>命令</th></tr></thead><tbody><tr><td>拦截率</td><td>≥95% 新增重复被清</td><td>每日 dry-run 报告「新增重复」应为 0</td></tr><tr><td>误判率</td><td>≤1%</td><td>抽样 20 条人工复核</td></tr><tr><td>遗忘验证</td><td>failure_rate ≤10%</td><td><code>memgov verify-forgetting &lt;run&gt;</code></td></tr><tr><td>召回不退化</td><td>MRR ≥ 0.94</td><td>每周 27 题 A/B</td></tr></tbody></table></div>
+<h3 id="9-4-复跑命令">9.4 复跑命令</h3>
+<pre><code># 回放过去 3 天数据做验证（不写库）
+memgov dedup-incremental --window-minutes 4320 --threshold 0.92 --require-signature --json
+
+# 单轮 dry-run
+memgov dedup-incremental --window-minutes 10 --json
+
+# 真执行
+MEMGOV_ALLOW_WRITE=1 memgov dedup-incremental --window-minutes 10 --apply</code></pre>
+<h2 id="10-阶段">10. 阶段</h2>
+<div class="tablewrap"><table><thead><tr><th>阶段</th><th>内容</th><th>退出条件</th></tr></thead><tbody><tr><td>P1</td><td>只读：拉增量 + 生成候选 + 出报告</td><td>历史 3 天回放，误判率 ≤1%</td></tr><tr><td>P2</td><td>dry-run cron（每 5 分钟，只报告）</td><td>连续 3 天无异常告警</td></tr><tr><td>P3</td><td>小批量 apply（上限 10 条/轮）</td><td>一周无误判</td></tr><tr><td>P4</td><td>全量 apply（上限 50 条/轮）+ 定时</td><td>保持 30 天</td></tr></tbody></table></div>
+<h2 id="11-风险与待拍板项">11. 风险与待拍板项</h2>
+<div class="tablewrap"><table><thead><tr><th>序</th><th>决策点</th><th>推荐</th><th>影响面</th><th>回滚</th></tr></thead><tbody><tr><td>1</td><td>主方案选 B（增量清扫）还是 A（写入前拦截）</td><td><strong>B</strong></td><td>A 要改 Hermes 插件，影响每轮对话</td><td>A 未实施无需回滚</td></tr><tr><td>2</td><td>增量窗口</td><td>5 分钟跑一次、窗口 10 分钟</td><td>窗口越大越省调用，滞后越久</td><td>改 cron 频率</td></tr><tr><td>3</td><td>是否同时对 cos 0.85–0.92 启用 LLM 判官</td><td><strong>先关闭</strong></td><td>开启后成本翻倍，收益待测</td><td>关参数</td></tr><tr><td>4</td><td>是否用硬删 <code>DELETE /memories</code></td><td><strong>不用</strong></td><td>硬删不可回滚</td><td>—</td></tr><tr><td>5</td><td>每轮动作上限</td><td>50 条</td><td>越高越激进</td><td>改参数</td></tr><tr><td>6</td><td>签名约束是否强制</td><td><strong>强制</strong></td><td>不强制时 48% 的簇是误判</td><td>改 <code>--require-signature</code></td></tr></tbody></table></div>
+<h3 id="11-1-对象状态台账">11.1 对象状态台账</h3>
+<div class="tablewrap"><table><thead><tr><th>对象</th><th>所在</th><th>状态</th></tr></thead><tbody><tr><td><code>src/memgov/embeddings.py</code></td><td>memgov 仓库</td><td><strong>新增</strong></td></tr><tr><td><code>src/memgov/dedup_incremental.py</code></td><td>memgov 仓库</td><td><strong>新增</strong></td></tr><tr><td><code>src/memgov/cli.py</code></td><td>memgov 仓库</td><td>修改（加子命令）</td></tr><tr><td><code>src/memgov/policies.py</code></td><td>memgov 仓库</td><td>不动（复用 DedupPolicy 的 <code>_dup</code>）</td></tr><tr><td><code>src/memgov/adapters/hindsight.py</code></td><td>memgov 仓库</td><td>修改（加增量拉取参数）</td></tr><tr><td><code>runs/embed-bank.npz</code></td><td>本地</td><td>新增（已有一次性产物，改为增量维护）</td></tr><tr><td><code>~/.hermes/scripts/memgov-dedup-incremental.sh</code></td><td>Hermes</td><td><strong>新增</strong></td></tr><tr><td>cron job</td><td>Hermes</td><td><strong>新增</strong></td></tr><tr><td>Hermes Hindsight 插件</td><td>插件目录</td><td><strong>不动</strong></td></tr><tr><td>Hindsight 服务端</td><td>远端</td><td>不动（只调已有 PATCH）</td></tr></tbody></table></div>
+<h3 id="11-2-文件级实现清单">11.2 文件级实现清单</h3>
+<div class="tablewrap"><table><thead><tr><th>文件</th><th>动作</th><th>说明</th></tr></thead><tbody><tr><td><code>src/memgov/embeddings.py</code></td><td>新增</td><td><code>EmbeddingClient</code>（调 text-embedding-v4，带缓存）+ <code>EmbeddingIndex</code>（npz 读写、append、KNN）</td></tr><tr><td><code>src/memgov/dedup_incremental.py</code></td><td>新增</td><td><code>IncrementalDeduper</code>：窗口拉取 → 签名过滤 → 候选生成 → 动作；<code>signature()</code> 工具函数</td></tr><tr><td><code>src/memgov/cli.py</code></td><td>修改</td><td>新增 <code>dedup-incremental</code> 子命令（参数见 §6.1）；<code>build_adapter</code> 增加 <code>since</code> 参数透传</td></tr><tr><td><code>src/memgov/adapters/hindsight.py</code></td><td>修改</td><td><code>list_memories</code> 增加 <code>since: datetime</code> 过滤（走 <code>updated_at</code> 参数）</td></tr><tr><td><code>tests/test_dedup_incremental.py</code></td><td>新增</td><td>签名过滤、窗口边界、上限闸门、不确定态不动作</td></tr><tr><td><code>tests/test_embeddings.py</code></td><td>新增</td><td>npz 往返、增量 append、KNN 正确性</td></tr><tr><td><code>~/.hermes/scripts/memgov-dedup-incremental.sh</code></td><td>新增</td><td>调 CLI，输出摘要供 cron 投递</td></tr><tr><td><code>docs/design-3-write-side-dedup.md</code></td><td>已有</td><td>本文件</td></tr><tr><td><code>docs/design-3-write-side-dedup.html</code></td><td>新增</td><td>人读版</td></tr></tbody></table></div><p class="note">memgov · 设计稿 v1.0 · 2026-11-22</p></main>
+</div></body></html>
