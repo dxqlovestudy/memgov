@@ -176,7 +176,8 @@ class EmbeddingIndex:
         v = np.asarray(vector, dtype=np.float32)
         norm = float(np.linalg.norm(v)) or 1.0
         v = v / norm
-        sims = self.vectors @ v
+        with np.errstate(divide="ignore", over="ignore", invalid="ignore"):
+            sims = self.vectors @ v  # numpy flags float32 BLAS noise on some builds
         exclude_set = set(exclude)
         order = np.argsort(-sims)
         out: List[Tuple[str, float]] = []

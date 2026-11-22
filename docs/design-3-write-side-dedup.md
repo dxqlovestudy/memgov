@@ -27,6 +27,13 @@ related:
 | 现有清扫速度 | 28 条 / 次 | 今天 `scan --apply` 实测 |
 | 产生 vs 清扫 | 330 / 天 vs 28 / 次 | 差一个数量级 |
 
+**P1 第一次 3 天回放暴露的误判类型**（阈值 0.92、无判官,84 条动作抽 20 条):
+
+- `0.92–0.93` 区间有 20/84 条(24%),误判集中在这里
+- 唯一误判:「用户要求**核实**三个 MCP 接口是否已完成」(cos 0.924) vs「用户要求把三个接口**派单实现**」——同一批接口、不同意图(核实 vs 实现),余弦无法区分
+- 三视角判官对此判 3/3 `INDEPENDENT`,理由「一条是核实完成状态,另一条是派单实现,属于不同任务属性」——判官能拦住余弦拦不住的
+- 因此确定性阈值从 0.92 提到 **0.95**,`0.85–0.95` 全部交判官
+
 **现有机制为什么不够**：
 
 1. `dedup` 策略是字面 bigram Jaccard，在 20 对人工金标上 **0/8 命中**（换词就掉分）。
@@ -89,7 +96,8 @@ sig(text) = tuple(sorted(set(token_re.findall(text))))   # 数字/ID 集合
 memgov dedup-incremental \
   --adapter hindsight --base-url <url> --bank dxq \
   --window-minutes 10 \
-  --threshold 0.92 \
+  --threshold 0.95 \    # >= 0.95 直接判重复（确定性区）
+  --boundary-low 0.85 \  # 0.85..0.95 交 LLM 判官（边界区）
   --require-signature \
   [--apply]          # 不带则 dry-run
 ```
@@ -132,8 +140,9 @@ memgov dedup-incremental \
 
 | 条件 | 动作 | 可逆 |
 |---|---|---|
-| cos ≥ 0.92 且 `sig` 相等且 `state=valid` | `invalidate(old_id)` + 台账 | ✅ |
-| cos 0.85–0.92 | 仅记录，不动作 | — |
+| cos ≥ 0.95 且 `sig` 相等且 `state=valid` | `invalidate(old_id)` + 台账 | ✅ |
+| 0.85 ≤ cos < 0.95,判官 3 视角 ≥2 票 DUPLICATE 且平均置信 ≥0.80 | `invalidate(old_id)` + 台账 | ✅ |
+| 0.85 ≤ cos < 0.95,判官未确认 | 标记 `uncertain`,不动作 | — |
 | `sig` 不等 | 仅记录 | — |
 | 记录属于最近 1 分钟内写入 | 跳过（避免与新写入竞争） | — |
 | 单轮动作 > 50 条 | **中止并告警**（防索引错乱导致批量误删） | — |
