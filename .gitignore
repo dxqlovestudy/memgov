@@ -11,3 +11,6 @@ runs/
 *.sqlite
 *.sqlite3
 .DS_Store
+
+# raw paper dumps (large, local-only)
+docs/_raw/

@@ -181,3 +181,86 @@ def transition_messages(transition, assertion, entity) -> list[Dict[str, str]]:
             ),
         },
     ]
+
+
+SUPERSEDE_PROMPT_VERSION = "supersede-v1"
+
+SUPERSEDE_FRAMINGS = (
+    "direct_replacement",
+    "temporal_precedence",
+    "adversarial_compatibility",
+)
+
+SUPERSEDE_SYSTEM_PROMPT = """你是记忆取代裁判（supersede-v1，视角 {framing}）。
+
+输入：两条记忆，NEW（较新）与 OLD（较旧）。它们共享同一技术锚点（地址/IP/端口/表名/编号等）。
+任务：只判断一件事——是否应把 OLD 标记为“已被 NEW 取代”。
+
+本视角的判定方式：
+- direct_replacement：NEW 是否直接给出替代 OLD 的当前值（地址/端口/版本/配置/口径）。
+- temporal_precedence：两者描述同一属性且取值冲突时，是否应以 NEW 为当前状态。
+- adversarial_compatibility：尽力论证两者可以同时成立（不同实体、不同维度、不同时间窗）；
+  只要能给出合理的共存解释，就判 INDEPENDENT。
+
+硬规则：
+1. 只依据两条原文，不引入外部知识。
+2. 判 SUPERSEDES 必须给出证据：NEW 与 OLD 各一段“连续原文子串”。
+3. 同一属性、不同取值才算取代；“相关”“相似”“互补”“同一主题”都不算。
+4. 拿不准判 INDEPENDENT：宁可漏标，不可错标。
+5. 只输出 JSON，不要解释。
+
+输出 JSON：
+{{
+  "verdict": "SUPERSEDES" | "INDEPENDENT",
+  "confidence": 0.0,
+  "evidence_new": "<NEW 原文连续片段>",
+  "evidence_old": "<OLD 原文连续片段>",
+  "reason": "<= 60 字"
+}}"""
+
+SUPERSEDE_USER_TEMPLATE = """视角：{framing}
+
+NEW（较新）：
+id: {n_id}
+date: {n_date}
+text:
+<<<NEW
+{n_text}
+NEW>>>
+
+OLD（较旧）：
+id: {o_id}
+date: {o_date}
+text:
+<<<OLD
+{o_text}
+OLD>>>
+
+共享锚点（仅用于圈定候选，不作判据）：{anchors}
+冲突线索：{conflict}
+
+只输出 JSON。"""
+
+
+def supersede_messages(new, old, framing: str, anchors, conflict: str) -> list[Dict[str, str]]:
+    """Build one supersede-v1 judge prompt for a single framing."""
+    return [
+        {
+            "role": "system",
+            "content": SUPERSEDE_SYSTEM_PROMPT.format(framing=framing),
+        },
+        {
+            "role": "user",
+            "content": SUPERSEDE_USER_TEMPLATE.format(
+                framing=framing,
+                n_id=new.id,
+                n_date=new.created_at.isoformat() if new.created_at else "-",
+                n_text=new.text,
+                o_id=old.id,
+                o_date=old.created_at.isoformat() if old.created_at else "-",
+                o_text=old.text,
+                anchors=", ".join(sorted(anchors))[:200] or "-",
+                conflict=conflict or "-",
+            ),
+        },
+    ]

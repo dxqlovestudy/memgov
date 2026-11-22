@@ -38,6 +38,7 @@ class HindsightAdapter(Adapter):
         allow_delete: bool = False,
         page_size: int = 500,
         include_kinds: Optional[List[str]] = None,
+        supersede_ledger: Optional[Dict[str, List[str]]] = None,
     ):
         self.base_url = base_url.rstrip("/")
         self.bank = bank
@@ -46,6 +47,10 @@ class HindsightAdapter(Adapter):
         self.allow_delete = allow_delete
         self.page_size = max(1, min(page_size, 500))
         self.include_kinds = include_kinds or ["world", "experience"]
+        # new_id -> old_ids accepted by `memgov ai-supersede`. Hindsight 1.2.0 cannot
+        # store metadata via PATCH, so the ledger is injected here as explicit evidence
+        # for SupersedePolicy (which still never guesses from similarity).
+        self.extra_supersedes = supersede_ledger or {}
         self.capabilities.delete = allow_delete
 
     def _request(self, method: str, path: str, body: Optional[Dict[str, Any]] = None) -> Any:
@@ -84,7 +89,20 @@ class HindsightAdapter(Adapter):
                 kind = str(item.get("fact_type") or "")
                 if kind and kind not in self.include_kinds:
                     continue
-                out.append(self._to_record(item))
+                record = self._to_record(item)
+                extra = self.extra_supersedes.get(record.id)
+                if extra:
+                    meta = dict(record.metadata or {})
+                    existing = meta.get("supersedes")
+                    merged = list(existing) if isinstance(existing, (list, tuple)) else (
+                        [existing] if isinstance(existing, str) and existing.strip() else []
+                    )
+                    for old_id in extra:
+                        if old_id not in merged:
+                            merged.append(old_id)
+                    meta["supersedes"] = merged
+                    record.metadata = meta
+                out.append(record)
                 if limit is not None and len(out) >= limit:
                     return out
             offset += len(items)

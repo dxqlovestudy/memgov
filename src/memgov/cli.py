@@ -14,6 +14,7 @@ from .adapters import HindsightAdapter, JsonFileAdapter, MemoryAdapter
 from .adapters.base import Adapter
 from .ai import AIConfig
 from .ai_governor import AIGovernor
+from .ai_supersede import SupersedeGovernor, SupersedeLedger, summarize_supersede
 from .ai_transition import TransitionGovernor, summarize_transition
 from .engine import Engine
 from .ledger import Ledger, verify_forgetting
@@ -34,7 +35,11 @@ def require_write_env(args: argparse.Namespace) -> None:
         )
 
 
-def build_adapter(args: argparse.Namespace, write: bool = False) -> Adapter:
+def build_adapter(
+    args: argparse.Namespace,
+    write: bool = False,
+    supersede_ledger: Optional[Dict[str, List[str]]] = None,
+) -> Adapter:
     if args.adapter == "memory":
         return MemoryAdapter(demo_records())
     if args.adapter == "jsonfile":
@@ -47,6 +52,7 @@ def build_adapter(args: argparse.Namespace, write: bool = False) -> Adapter:
             bank=args.bank or os.environ.get("HINDSIGHT_BANK_ID", "default"),
             timeout=args.timeout,
             allow_write=write,
+            supersede_ledger=supersede_ledger,
         )
     raise SystemExit(f"unknown adapter: {args.adapter}")
 
@@ -325,6 +331,65 @@ def cmd_ai_transition(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_ai_supersede(args: argparse.Namespace) -> int:
+    """Certify supersessions with three judge framings; write the local ledger only.
+
+    No ``require_write_env``: ``--apply`` writes the local supersede ledger, never the
+    Hindsight backend. The backend mutation happens later via ``scan --apply``
+    (SupersedePolicy), which is the command that needs ``MEMGOV_ALLOW_WRITE=1``.
+    """
+    base_url = args.ai_base_url or os.environ.get("MEMGOV_AI_BASE_URL") or os.environ.get("OPENAI_BASE_URL")
+    api_key = os.environ.get("MEMGOV_AI_API_KEY") or os.environ.get("OPENAI_API_KEY") or ""
+    model = args.ai_model or os.environ.get("MEMGOV_AI_MODEL") or ""
+    if not base_url or not model:
+        raise SystemExit("--ai-base-url and --ai-model (or env) are required")
+    if not api_key:
+        raise SystemExit("MEMGOV_AI_API_KEY or OPENAI_API_KEY is required")
+
+    cache_path = None
+    if not args.no_cache:
+        cache_path = args.ai_cache or os.path.join(args.runs_dir, "ai-cache.json")
+    config = AIConfig(
+        base_url=base_url,
+        api_key=api_key,
+        model=model,
+        confidence_threshold=args.confidence,
+        cache_path=cache_path,
+        prompt_version="supersede-v1",
+    )
+    ledger = Ledger(args.runs_dir)
+    supersede_ledger = SupersedeLedger(
+        args.supersede_ledger or os.path.join(args.runs_dir, "supersede-ledger.jsonl")
+    )
+    adapter = build_adapter(args, write=False)
+    governor = SupersedeGovernor(
+        adapter=adapter,
+        config=config,
+        ledger=ledger,
+        supersede_ledger=supersede_ledger,
+        dry_run=not args.apply,
+        max_records=args.limit,
+        max_pairs=args.max_pairs,
+        max_accepts=args.max_accepts,
+        min_score=args.min_score,
+        min_similarity=args.min_similarity,
+        vote_threshold=args.vote_threshold,
+        min_confidence=args.confidence,
+    )
+    report = governor.run()
+    if args.json:
+        print(
+            json.dumps(
+                {"summary": summary(report), "run_file": report.run_file, "ai": report.ai},
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
+    else:
+        print(summarize_supersede(report))
+    return 0
+
+
 def cmd_demo(args: argparse.Namespace) -> int:
     policies = build_policies(
         {
@@ -433,6 +498,27 @@ def main(argv: Optional[List[str]] = None) -> int:
     p_tr.add_argument("--candidates-only", action="store_true")
     p_tr.add_argument("--only-transition", default="", help="comma-separated transition id prefixes")
     p_tr.set_defaults(func=cmd_ai_transition)
+
+    p_sup = sub.add_parser(
+        "ai-supersede",
+        help="certify supersessions (MEMOIR-style 3 framings) and write the local supersede ledger",
+    )
+    add_common(p_sup)
+    add_adapter_args(p_sup)
+    p_sup.add_argument("--limit", type=int, default=None)
+    p_sup.add_argument("--apply", action="store_true", help="write accepted pairs to the supersede ledger")
+    p_sup.add_argument("--supersede-ledger", help="path of the JSONL supersede ledger")
+    p_sup.add_argument("--max-pairs", type=int, default=100)
+    p_sup.add_argument("--max-accepts", type=int, default=10)
+    p_sup.add_argument("--min-score", type=float, default=0.30, help="candidate score floor (blocking only)")
+    p_sup.add_argument("--min-similarity", type=float, default=0.0)
+    p_sup.add_argument("--vote-threshold", type=float, default=0.6, help="SUPERSEDES vote ratio (MEMOIR tau_s)")
+    p_sup.add_argument("--confidence", type=float, default=0.90)
+    p_sup.add_argument("--ai-base-url")
+    p_sup.add_argument("--ai-model")
+    p_sup.add_argument("--ai-cache")
+    p_sup.add_argument("--no-cache", action="store_true")
+    p_sup.set_defaults(func=cmd_ai_supersede)
 
     p_demo = sub.add_parser("demo", help="run the built-in demo")
     p_demo.add_argument("--runs-dir", default="runs")
