@@ -375,6 +375,9 @@ def cmd_ai_supersede(args: argparse.Namespace) -> int:
         min_similarity=args.min_similarity,
         vote_threshold=args.vote_threshold,
         min_confidence=args.confidence,
+        seeded_overlap=args.seeded_overlap,
+        seeded_top_k=args.seeded_top_k,
+        use_seeded=args.use_seeded,
     )
     report = governor.run()
     if args.json:
@@ -513,6 +516,10 @@ def main(argv: Optional[List[str]] = None) -> int:
     p_sup.add_argument("--min-score", type=float, default=0.30, help="candidate score floor (blocking only)")
     p_sup.add_argument("--min-similarity", type=float, default=0.0)
     p_sup.add_argument("--vote-threshold", type=float, default=0.6, help="SUPERSEDES vote ratio (MEMOIR tau_s)")
+    p_sup.add_argument("--seeded-overlap", type=float, default=0.22, help="text-overlap floor for conflict-seeded candidates")
+    p_sup.add_argument("--seeded-top-k", type=int, default=3)
+    p_sup.add_argument("--seeded-quota-ratio", type=float, default=0.7, help="share of candidate slots reserved for the seeded channel")
+    p_sup.add_argument("--no-seeded", dest="use_seeded", action="store_false", help="disable the conflict-seeded channel")
     p_sup.add_argument("--confidence", type=float, default=0.90)
     p_sup.add_argument("--ai-base-url")
     p_sup.add_argument("--ai-model")

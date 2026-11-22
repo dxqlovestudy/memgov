@@ -9,7 +9,9 @@ from memgov.ai_supersede import (
     SupersedeGovernor,
     SupersedeLedger,
     SupersedeVerdict,
+    conflict_seeded_pairs,
     detect_conflict,
+    merge_candidate_pairs,
     order_pair,
     parse_verdict,
 )
@@ -182,3 +184,26 @@ def test_hindsight_injects_ledger_as_explicit_evidence(monkeypatch):
     records = adapter.list_memories()
     assert records[0].metadata["supersedes"] == ["old1"]
     assert "supersedes" not in records[1].metadata
+
+
+def test_conflict_seeded_pairs_pairs_without_shared_anchor():
+    old = rec("old3", "推送代码前必须征得同意，不得自行推送远端", T0)
+    new = rec("new3", "推送规则改为：每次推送须单独放行，不得自行推送远端", T1)
+    seeded = conflict_seeded_pairs([old, new], min_overlap=0.10, top_k=3)
+    assert [(p.a.id, p.b.id) for p in seeded] == [("old3", "new3")]
+
+
+def test_conflict_seeded_pairs_ignores_records_without_signal():
+    old = rec("old4", "服务部署在 172.20.12.116", T0)
+    new = rec("new4", "服务部署在 172.20.12.116 上，端口 8888", T1)
+    assert conflict_seeded_pairs([old, new], min_overlap=0.10) == []
+
+
+def test_merge_candidate_pairs_dedupes_same_ordered_pair():
+    old, new = rec("o", OLD_TEXT, T0), rec("n", NEW_TEXT, T1)
+    anchor = [CandidatePair(a=old, b=new, score=0.5, shared_anchors=["a"])]
+    seeded = [CandidatePair(a=new, b=old, score=0.7, shared_anchors=[])]
+    merged = merge_candidate_pairs(anchor, seeded, max_pairs=10)
+    assert len(merged) == 1
+    assert merged[0].score == 0.7
+    assert (merged[0].a.id, merged[0].b.id) == ("o", "n")

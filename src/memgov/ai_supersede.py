@@ -32,7 +32,7 @@ from typing import Dict, List, Optional, Tuple
 from .ai import AICache, AIConfig, OpenAICompatibleClient
 from .candidates import CandidatePair, candidate_pairs
 from .ledger import Ledger
-from .models import Action, MemoryRecord, ScanReport
+from .models import Action, MemoryRecord, ScanReport, bigrams
 from .prompts import SUPERSEDE_FRAMINGS, SUPERSEDE_PROMPT_VERSION, supersede_messages
 
 # Lexical conflict signal (the TRIAGE-alpha stand-in for Chinese text). This only
@@ -62,6 +62,97 @@ def order_pair(pair: CandidatePair) -> Tuple[MemoryRecord, MemoryRecord]:
     if _when(a) == _when(b):
         return (a, b) if a.id <= b.id else (b, a)
     return (a, b) if _when(a) > _when(b) else (b, a)
+
+
+def conflict_seeded_pairs(
+    records: List[MemoryRecord],
+    *,
+    min_overlap: float = 0.22,
+    top_k: int = 3,
+    max_pairs: int = 200,
+) -> List[CandidatePair]:
+    """Pair every conflict-bearing record with its closest older neighbours.
+
+    Anchor blocking (``candidate_pairs``) misses the common case where a rule is
+    restated in different words: "推送须逐次同意" vs "push 要单独放行" share no
+    anchor. This second channel seeds from the lexical conflict signal instead and
+    ranks by text overlap, so a restated-and-updated pair can still meet a judge.
+    It only proposes; nothing here can retire a record.
+    """
+    valid = [r for r in records if r.state == "valid" and (r.text or "").strip()]
+    if len(valid) < 2:
+        return []
+    grams = {r.id: bigrams(r.text) for r in valid}
+    seed_records = [r for r in valid if detect_conflict(r.text, "")]
+    if not seed_records:
+        return []
+
+    scored: Dict[Tuple[str, str], CandidatePair] = {}
+    for new in seed_records:
+        candidates: List[Tuple[float, MemoryRecord]] = []
+        g_new = grams[new.id]
+        for old in valid:
+            if old.id == new.id:
+                continue
+            if _when(old) >= _when(new):
+                continue
+            g_old = grams[old.id]
+            if not g_old or not g_new:
+                continue
+            inter = len(g_new & g_old)
+            union = len(g_new | g_old)
+            overlap = inter / union if union else 0.0
+            if overlap >= min_overlap:
+                candidates.append((overlap, old))
+        candidates.sort(key=lambda x: -x[0])
+        for overlap, old in candidates[:top_k]:
+            key = (old.id, new.id)
+            existing = scored.get(key)
+            if existing is None or existing.score < overlap:
+                scored[key] = CandidatePair(a=old, b=new, score=overlap, shared_anchors=[])
+    ranked = sorted(scored.values(), key=lambda p: -p.score)
+    return ranked[:max_pairs]
+
+
+def merge_candidate_pairs(
+    anchor_pairs: List[CandidatePair],
+    seeded_pairs: List[CandidatePair],
+    *,
+    max_pairs: int,
+    seeded_quota: Optional[int] = None,
+) -> List[CandidatePair]:
+    """Union both channels without comparing their scores against each other.
+
+    The two channels produce different score semantics (anchor blocking score vs
+    raw text overlap), so a single sort would always let one channel crowd out the
+    other. Instead the seeded channel gets a fixed quota and the anchor channel
+    fills the rest; duplicates collapse on ``(old_id, new_id)``.
+    """
+    deduped: Dict[Tuple[str, str], CandidatePair] = {}
+
+    def _add(pair: CandidatePair) -> Optional[Tuple[str, str]]:
+        new, old = order_pair(pair)
+        key = (old.id, new.id)
+        if key in deduped:
+            return None
+        deduped[key] = CandidatePair(
+            a=old, b=new, score=pair.score, shared_anchors=list(pair.shared_anchors)
+        )
+        return key
+
+    quota = max_pairs if seeded_quota is None else max(0, min(seeded_quota, max_pairs))
+    order: List[Tuple[str, str]] = []
+    for pair in sorted(seeded_pairs, key=lambda p: -p.score)[:quota]:
+        key = _add(pair)
+        if key:
+            order.append(key)
+    for pair in sorted(anchor_pairs, key=lambda p: -p.score):
+        if len(order) >= max_pairs:
+            break
+        key = _add(pair)
+        if key:
+            order.append(key)
+    return [deduped[key] for key in order[:max_pairs]]
 
 
 @dataclass
@@ -254,6 +345,10 @@ class SupersedeGovernor:
         min_similarity: float = 0.0,
         vote_threshold: float = 0.6,
         min_confidence: float = 0.90,
+        seeded_overlap: float = 0.22,
+        seeded_top_k: int = 3,
+        seeded_quota_ratio: float = 0.7,
+        use_seeded: bool = True,
         judge: Optional[SupersedeJudge] = None,
     ):
         self.adapter = adapter
@@ -268,6 +363,10 @@ class SupersedeGovernor:
         self.min_similarity = min_similarity
         self.vote_threshold = vote_threshold
         self.min_confidence = min_confidence
+        self.seeded_overlap = seeded_overlap
+        self.seeded_top_k = seeded_top_k
+        self.seeded_quota_ratio = seeded_quota_ratio
+        self.use_seeded = use_seeded
         self.judge = judge or SupersedeJudge(
             config, cache=AICache(config.cache_path) if config.cache_path else AICache(None)
         )
@@ -285,6 +384,23 @@ class SupersedeGovernor:
         report.records_scanned = len(records)
 
         pairs = candidate_pairs(records, max_pairs=self.max_pairs, min_score=self.min_score)
+        anchor_pairs = list(pairs)
+        seeded_pairs = (
+            conflict_seeded_pairs(
+                records,
+                min_overlap=self.seeded_overlap,
+                top_k=self.seeded_top_k,
+                max_pairs=self.max_pairs,
+            )
+            if self.use_seeded
+            else []
+        )
+        pairs = merge_candidate_pairs(
+            anchor_pairs,
+            seeded_pairs,
+            max_pairs=self.max_pairs,
+            seeded_quota=max(1, int(self.max_pairs * self.seeded_quota_ratio)),
+        )
         proposed: List[Dict[str, object]] = []
         judged = accepted = 0
         for pair in pairs:
@@ -364,6 +480,8 @@ class SupersedeGovernor:
             "prompt_version": SUPERSEDE_PROMPT_VERSION,
             "records_scanned": len(records),
             "candidate_pairs": len(pairs),
+            "anchor_pairs": len(anchor_pairs),
+            "seeded_pairs": len(seeded_pairs),
             "judged_pairs": judged,
             "accepted": accepted,
             "limits": {
@@ -373,6 +491,10 @@ class SupersedeGovernor:
                 "min_similarity": self.min_similarity,
                 "vote_threshold": self.vote_threshold,
                 "min_confidence": self.min_confidence,
+                "seeded_overlap": self.seeded_overlap,
+                "seeded_top_k": self.seeded_top_k,
+                "seeded_quota_ratio": self.seeded_quota_ratio,
+                "use_seeded": self.use_seeded,
             },
             "proposals": proposed[:60],
             "usage": self.judge.usage(),
