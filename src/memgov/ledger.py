@@ -68,6 +68,14 @@ def verify_forgetting(
     failures = 0
     for action in actions:
         text = (action.get("before") or {}).get("text") or ""
+        if not text.strip():
+            # No snapshot text means there is nothing to query for; count it as
+            # skipped rather than calling recall with an empty query.
+            results = []
+            checked.append(
+                {"memory_id": action.get("memory_id"), "checked": False, "reason": "no text snapshot"}
+            )
+            continue
         results = recall_fn(text, top)
         hit = False
         reason = ""
@@ -76,6 +84,10 @@ def verify_forgetting(
             if item_id and item_id == action.get("memory_id"):
                 hit, reason = True, "same id"
                 break
+            if item_id and item_id == str(action.get("replacement_id") or ""):
+                # The survivor of a dedup/replace is meant to stay recallable; a hit on
+                # it is not a forgetting failure, only a hit on the invalidated record is.
+                continue
             if text and jaccard(text, str(item.get("text") or "")) >= min_similarity:
                 hit, reason = True, "near-identical text"
                 break

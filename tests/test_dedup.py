@@ -77,3 +77,16 @@ def test_ai_certified_duplicate_is_invalidated_before_similarity():
     actions = DedupPolicy(similarity=0.99).evaluate([target, flagged], ctx())
     assert [(a.memory_id, a.replacement_id) for a in actions] == [("f", "t")]
     assert "ai-certified" in actions[0].reason
+
+
+def test_duplicate_chain_resolves_to_the_survivor():
+    recs = [
+        MemoryRecord(id="a", text="x", kind="world", created_at=now(), metadata={"duplicate_of": "b"}),
+        MemoryRecord(id="b", text="y", kind="world", created_at=now(), metadata={"duplicate_of": "c"}),
+        MemoryRecord(id="c", text="z", kind="world", created_at=now()),
+    ]
+    actions = DedupPolicy(similarity=0.99).evaluate(recs, ctx())
+    by_id = {a.memory_id: a for a in actions}
+    assert by_id["a"].replacement_id == "c"
+    assert by_id["b"].replacement_id == "c"
+    assert "via b" in by_id["a"].reason

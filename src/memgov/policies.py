@@ -183,21 +183,45 @@ class DedupPolicy(Policy):
         # AI-certified duplicates first: `memgov ai-supersede` can prove two records
         # say the same thing in different words, which the lexical similarity below
         # cannot see. These carry explicit evidence, so they never rely on a guess.
+        dup_map = {
+            rec.id: str((rec.metadata or {})["duplicate_of"])
+            for rec in records
+            if (rec.metadata or {}).get("duplicate_of")
+        }
+
+        def final_target(start: str) -> str:
+            """Follow the duplicate chain to the survivor so the audit trail stays intact.
+
+            A->B->C happens when the same pair of clusters is certified twice. Leaving
+            replacement_id pointing at B would name a record that is itself invalidated.
+            """
+            seen = {start}
+            cur = start
+            while cur in dup_map and dup_map[cur] not in seen:
+                cur = dup_map[cur]
+                seen.add(cur)
+            return cur
+
         claimed: set = set()
         for rec in records:
             if rec.state != "valid":
                 continue
-            target = (rec.metadata or {}).get("duplicate_of")
+            target = dup_map.get(rec.id)
             if not target:
                 continue
             claimed.add(rec.id)
+            survivor = final_target(rec.id)
+            reason = f"duplicate_of:{survivor} (ai-certified)"
+            if survivor != target:
+                reason = f"duplicate_of:{survivor} via {target} (ai-certified)"
             actions.append(
                 Action(
                     action="invalidate",
                     memory_id=rec.id,
                     policy="dedup",
-                    reason=f"duplicate_of:{target} (ai-certified)",
-                    replacement_id=str(target),
+                    reason=reason,
+                    replacement_id=survivor,
+                    before=rec.to_dict(),
                 )
             )
         groups: Dict[str, List[MemoryRecord]] = {}
@@ -239,7 +263,8 @@ class DedupPolicy(Policy):
                 key = norm_text(rec.text)
                 keep = exact.get(key)
                 if keep is not None:
-                    actions.append(self._dup(rec, keep, "exact"))
+                    if keep.id != rec.id:  # never invalidate a record against itself
+                        actions.append(self._dup(rec, keep, "exact"))
                     continue
                 exact[key] = rec
 

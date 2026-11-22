@@ -39,6 +39,7 @@ def build_adapter(
     args: argparse.Namespace,
     write: bool = False,
     supersede_ledger: Optional[Dict[str, List[str]]] = None,
+    duplicate_ledger: Optional[Dict[str, str]] = None,
 ) -> Adapter:
     if args.adapter == "memory":
         return MemoryAdapter(demo_records())
@@ -53,6 +54,7 @@ def build_adapter(
             timeout=args.timeout,
             allow_write=write,
             supersede_ledger=supersede_ledger,
+            duplicate_ledger=duplicate_ledger,
         )
     raise SystemExit(f"unknown adapter: {args.adapter}")
 
@@ -140,7 +142,15 @@ def cmd_scan(args: argparse.Namespace) -> int:
     if not policies:
         raise SystemExit("no enabled policies in policy file")
     ledger = Ledger(args.runs_dir)
-    adapter = build_adapter(args, write=args.apply)
+    # AI certifications live in a local JSONL ledger; scan replays them into the
+    # records' metadata so SupersedePolicy/DedupPolicy can act on explicit evidence.
+    sup_ledger = SupersedeLedger(os.path.join(args.runs_dir, "supersede-ledger.jsonl"))
+    adapter = build_adapter(
+        args,
+        write=args.apply,
+        supersede_ledger=sup_ledger.map_by_new(),
+        duplicate_ledger=sup_ledger.duplicate_map(),
+    )
     engine = Engine(
         adapter=adapter,
         policies=policies,

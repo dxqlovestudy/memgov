@@ -115,7 +115,17 @@ class HindsightAdapter(Adapter):
             offset += len(items)
             if len(items) < page or (total and offset >= total):
                 break
-        return out
+        # Offset paging over a live bank can return the same record twice when a
+        # write shifts the updated_at cursor mid-scan; drop repeats so policies can
+        # never pair a record with itself.
+        seen: set = set()
+        deduped: List[MemoryRecord] = []
+        for rec in out:
+            if rec.id in seen:
+                continue
+            seen.add(rec.id)
+            deduped.append(rec)
+        return deduped
 
     @staticmethod
     def _as_list(value: Any) -> List[str]:
