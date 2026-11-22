@@ -98,7 +98,7 @@ def main() -> int:
     ap.add_argument("--positives", type=int, default=30)
     ap.add_argument("--negatives", type=int, default=15)
     ap.add_argument("--seed", type=int, default=7)
-    ap.add_argument("--confidence", type=float, default=0.90)
+    ap.add_argument("--confidence", type=float, default=0.85)
     ap.add_argument("--vote-threshold", type=float, default=0.6)
     ap.add_argument("--ai-base-url", default=os.environ.get("MEMGOV_AI_BASE_URL") or os.environ.get("OPENAI_BASE_URL"))
     ap.add_argument("--ai-model", default=os.environ.get("MEMGOV_AI_MODEL") or "")

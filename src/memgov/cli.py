@@ -520,7 +520,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     p_sup.add_argument("--seeded-top-k", type=int, default=3)
     p_sup.add_argument("--seeded-quota-ratio", type=float, default=0.7, help="share of candidate slots reserved for the seeded channel")
     p_sup.add_argument("--no-seeded", dest="use_seeded", action="store_false", help="disable the conflict-seeded channel")
-    p_sup.add_argument("--confidence", type=float, default=0.90)
+    p_sup.add_argument("--confidence", type=float, default=0.85, help="mean confidence gate (calibrated on deepseek-flash: 0.77-0.88 band)")
     p_sup.add_argument("--ai-base-url")
     p_sup.add_argument("--ai-model")
     p_sup.add_argument("--ai-cache")

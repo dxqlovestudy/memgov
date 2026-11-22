@@ -183,20 +183,53 @@ def _strip_fences(text: str) -> str:
     return text.strip()
 
 
+def _loads_loose(text: str):
+    """Try progressively looser JSON parses of one judge reply."""
+    candidates = [text]
+    fixed = re.sub(r",\s*([}\]])", r"\1", text)
+    if fixed != text:
+        candidates.append(fixed)
+    swapped = fixed.replace("'", '"') if "'" in fixed else None
+    if swapped and swapped not in candidates:
+        candidates.append(swapped)
+    for candidate in list(candidates):
+        opens = candidate.count("{") - candidate.count("}")
+        if opens > 0:
+            candidates.append(candidate + "}" * opens)
+    for candidate in candidates:
+        try:
+            data = json.loads(candidate)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(data, dict):
+            return data
+    return None
+
+
 def parse_verdict(content: str, framing: str, new: MemoryRecord, old: MemoryRecord) -> SupersedeVerdict:
     """Parse one judge reply and downgrade it to INDEPENDENT when the contract fails."""
     raw = _strip_fences(content)
     start, end = raw.find("{"), raw.rfind("}")
-    if start == -1 or end <= start:
-        return SupersedeVerdict(framing, "INDEPENDENT", 0.0, reason="unparsable")
-    try:
-        data = json.loads(raw[start : end + 1])
-    except json.JSONDecodeError:
-        return SupersedeVerdict(framing, "INDEPENDENT", 0.0, reason="invalid_json")
+    data = _loads_loose(raw[start : end + 1]) if start != -1 and end > start else None
+    if data is None:
+        # Last resort: the verdict word often survives even when the JSON does not.
+        # Confidence stays 0 so a malformed reply can never clear the accept gate.
+        match = re.search(r"(?i)\b(SUPERSEDES|INDEPENDENT)\b", raw)
+        if not match:
+            return SupersedeVerdict(framing, "INDEPENDENT", 0.0, reason="unparsable")
+        return SupersedeVerdict(
+            framing,
+            match.group(1).upper(),
+            0.0,
+            reason="verdict_only_no_json",
+        )
 
     verdict = str(data.get("verdict", "")).strip().upper()
     if verdict not in {"SUPERSEDES", "INDEPENDENT"}:
-        return SupersedeVerdict(framing, "INDEPENDENT", 0.0, reason="bad_verdict")
+        match = re.search(r"(?i)\b(SUPERSEDES|INDEPENDENT)\b", raw)
+        if not match:
+            return SupersedeVerdict(framing, "INDEPENDENT", 0.0, reason="bad_verdict")
+        verdict = match.group(1).upper()
     try:
         confidence = float(data.get("confidence", 0.0))
     except (TypeError, ValueError):
@@ -344,7 +377,7 @@ class SupersedeGovernor:
         min_score: float = 0.30,
         min_similarity: float = 0.0,
         vote_threshold: float = 0.6,
-        min_confidence: float = 0.90,
+        min_confidence: float = 0.85,
         seeded_overlap: float = 0.22,
         seeded_top_k: int = 3,
         seeded_quota_ratio: float = 0.7,

@@ -80,6 +80,46 @@ def test_parse_verdict_bad_json_is_independent():
     assert parse_verdict("not json", "x", new, old).verdict == "INDEPENDENT"
 
 
+def test_parse_verdict_tolerates_trailing_comma():
+    old, new = rec("o", OLD_TEXT, T0), rec("n", NEW_TEXT, T1)
+    content = (
+        '{"verdict":"SUPERSEDES","confidence":0.91,'
+        '"evidence_new":"地址改为 http://172.20.12.116:8888",'
+        '"evidence_old":"地址为 http://172.20.9.122:8888",}'
+    )
+    verdict = parse_verdict(content, "x", new, old)
+    assert verdict.verdict == "SUPERSEDES"
+    assert verdict.confidence == 0.91
+
+
+def test_parse_verdict_tolerates_single_quotes():
+    old, new = rec("o", OLD_TEXT, T0), rec("n", NEW_TEXT, T1)
+    content = (
+        "{'verdict':'SUPERSEDES','confidence':0.9,"
+        "'evidence_new':'地址改为 http://172.20.12.116:8888',"
+        "'evidence_old':'地址为 http://172.20.9.122:8888'}"
+    )
+    assert parse_verdict(content, "x", new, old).verdict == "SUPERSEDES"
+
+
+def test_parse_verdict_tolerates_truncated_json():
+    old, new = rec("o", OLD_TEXT, T0), rec("n", NEW_TEXT, T1)
+    content = (
+        '{"verdict":"SUPERSEDES","confidence":0.9,'
+        '"evidence_new":"地址改为 http://172.20.12.116:8888",'
+        '"evidence_old":"地址为 http://172.20.9.122:8888"'
+    )
+    assert parse_verdict(content, "x", new, old).verdict == "SUPERSEDES"
+
+
+def test_parse_verdict_verdict_only_fallback_cannot_pass_gate():
+    old, new = rec("o", OLD_TEXT, T0), rec("n", NEW_TEXT, T1)
+    verdict = parse_verdict("我的结论是 SUPERSEDES", "x", new, old)
+    assert verdict.verdict == "SUPERSEDES"
+    assert verdict.confidence == 0.0
+    assert verdict.reason == "verdict_only_no_json"
+
+
 def test_supersede_ledger_map_and_revoke(tmp_path):
     led = SupersedeLedger(str(tmp_path / "s.jsonl"))
     led.append({"action": "stamp", "new_id": "n1", "old_id": "o1"})
