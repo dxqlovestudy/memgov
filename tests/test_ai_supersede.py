@@ -290,3 +290,16 @@ def test_governor_duplicate_can_be_disabled(tmp_path):
     report = gov.run()
     assert report.actions == []
     assert led.duplicate_map() == {}
+
+
+def test_ledger_append_is_idempotent(tmp_path):
+    led = SupersedeLedger(str(tmp_path / "s.jsonl"))
+    entry = {"action": "duplicate", "old_id": "a", "new_id": "b"}
+    led.append(entry)
+    led.append(dict(entry))
+    led.append({"action": "duplicate", "old_id": "a", "new_id": "c"})
+    assert len(led.entries()) == 2
+    # a fresh instance must respect what is already on disk
+    led2 = SupersedeLedger(str(tmp_path / "s.jsonl"))
+    led2.append(dict(entry))
+    assert len(led2.entries()) == 2

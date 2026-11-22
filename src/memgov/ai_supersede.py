@@ -324,10 +324,20 @@ class SupersedeLedger:
     def __init__(self, path: str = "runs/supersede-ledger.jsonl"):
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
+        # Re-running ai-supersede over the same bank re-certifies the same pairs, so
+        # appends must be idempotent: a repeated certification of the same
+        # (action, old_id, new_id) is already in the ledger and must not double count.
+        self._seen = {
+            (e.get("action"), e.get("old_id"), e.get("new_id")) for e in self.entries()
+        }
 
     def append(self, entry: Dict[str, object]) -> None:
+        key = (entry.get("action"), entry.get("old_id"), entry.get("new_id"))
+        if key in self._seen:
+            return
         with self.path.open("a", encoding="utf-8") as fh:
             fh.write(json.dumps(entry, ensure_ascii=False) + "\n")
+        self._seen.add(key)
 
     def entries(self) -> List[Dict[str, object]]:
         if not self.path.exists():

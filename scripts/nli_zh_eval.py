@@ -70,7 +70,7 @@ for r in rows:
     by_kind[r["kind"]].append(r)
 random.seed(20261122)
 picked = []
-for kind, items in sorted(by_kind.items()):
+for _kind, items in sorted(by_kind.items()):
     random.shuffle(items)
     picked.extend(items[:N_PER_BUCKET])
 print(f"候选 {len(rows)} 条，按 kind 抽样后 {len(picked)} 条：{dict(Counter(x['kind'] for x in picked))}")
