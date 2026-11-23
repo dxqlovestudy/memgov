@@ -17,3 +17,6 @@ docs/_raw/
 
 # benchmark data dumps (local-only)
 data/
+
+# 生成的日报（memgov_daily_report.py → 部署到 aether-vm）
+daily/
