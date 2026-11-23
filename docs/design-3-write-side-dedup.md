@@ -188,15 +188,24 @@ memgov dedup-incremental \
 | 2 | 3 天 | — | SIGBUS 中断 | 0.95、判官 | — | 无结果 |
 | 3 | 1 天 | 1,193 | 52 | 0.95、判官 | 14 | 0 |
 | 4 | 3 天 | 4,640 | 121 | 0.95、判官 | 30 | **0** |
+| 5 | 7 天 | 7,992 | 266 | 0.95、判官 | 32 | **0** |
 
 第 4 轮完整计数:`duplicates 121 / uncertain 173 / signature_blocked 953 / errors 0`。
+第 5 轮完整计数:`duplicates 266(确定性 54 + 判官 212) / uncertain 314 /
+signature_blocked 1,585 / errors 0`,覆盖全库 11,878 条中的 67%。
 
 抽样 30 条中 15 条是具体业务事实(协议 181 续签批次、AccountTypeEnum 取值、
 fat 的 T_PROTOCOL_CONFIG 缺 PROTOCOL_SUB_TYPE、removeNoUpdateReq 的 realName
 剔除坑、agent-front→mng-agent→Apollo 上线顺序),逐条比对 OLD 与 KEEP,全部
 保留等价或更精确的版本;其余 15 条是会话丢失/Multica 身份/看板地址等模板变体。
 
-误判率:**44 条抽样(第 3+4 轮)0 误判**。
+第 5 轮 32 条抽样中 17 条是具体业务事实(multica agent 不继承 MULTICA_*、
+Aether VM 三端口、审核报告页索引、商户导出筛选项订正、镜像 333183 部署与 pod
+就绪、PTHZ-4006 第 4 轮、禁用两个 skill、page_index 溢出用例、越权用例 638、
+服务费导出 0 行、AgentBaseResponse 常量位置、配置回滚复核),逐条核对后全部
+与保留版本等价,多数保留版本还多带仓库路径/类名/字段名。
+
+误判率:**76 条抽样(第 3+4+5 轮)0 误判**。
 
 第 4 轮动作数(121)高于第 1 轮(84),原因是判官接管了 0.85–0.95 区间:
 第 1 轮被 0.92 阈值挡在门外的那批对,现在经三视角确认后可以执行,不是判定变松。
