@@ -33,7 +33,7 @@ hr{border:0;border-top:1px solid var(--line);margin:28px 0}
 @media print{nav{display:none}main{padding:0}.tablewrap{overflow:visible}}
 </style></head>
 <body><div class="wrap">
-<nav><div class="tag">技术方案 · 设计稿</div><a class="" href="#1-结论摘要">1. 结论摘要</a><a class="" href="#2-问题与证据">2. 问题与证据</a><a class="" href="#3-目标与非目标">3. 目标与非目标</a><a class="" href="#4-数据模型">4. 数据模型</a><a class="lv3" href="#4-1-新增实体">4.1 新增实体</a><a class="lv3" href="#4-2-状态机-复用现有">4.2 状态机（复用现有）</a><a class="lv3" href="#4-3-签名定义">4.3 签名定义</a><a class="" href="#5-流水线">5. 流水线</a><a class="" href="#6-契约">6. 契约</a><a class="lv3" href="#6-1-命令">6.1 命令</a><a class="lv3" href="#6-2-输出">6.2 输出</a><a class="lv3" href="#6-3-不确定态">6.3 不确定态</a><a class="" href="#7-影响面-本改造无-ai-提示词">7. 影响面（本改造无 AI 提示词）</a><a class="" href="#8-动作矩阵与安全闸门">8. 动作矩阵与安全闸门</a><a class="" href="#9-验收">9. 验收</a><a class="lv3" href="#9-1-必须命中的正例">9.1 必须命中的正例</a><a class="lv3" href="#9-2-必须保留的反例">9.2 必须保留的反例</a><a class="lv3" href="#9-3-量化阈值">9.3 量化阈值</a><a class="lv3" href="#9-4-复跑命令">9.4 复跑命令</a><a class="" href="#10-阶段">10. 阶段</a><a class="" href="#11-风险与待拍板项">11. 风险与待拍板项</a><a class="lv3" href="#11-1-对象状态台账">11.1 对象状态台账</a><a class="lv3" href="#11-2-文件级实现清单">11.2 文件级实现清单</a></nav>
+<nav><div class="tag">技术方案 · 设计稿</div><a class="" href="#1-结论摘要">1. 结论摘要</a><a class="" href="#2-问题与证据">2. 问题与证据</a><a class="" href="#3-目标与非目标">3. 目标与非目标</a><a class="" href="#4-数据模型">4. 数据模型</a><a class="lv3" href="#4-1-新增实体">4.1 新增实体</a><a class="lv3" href="#4-2-状态机-复用现有">4.2 状态机（复用现有）</a><a class="lv3" href="#4-3-签名定义">4.3 签名定义</a><a class="" href="#5-流水线">5. 流水线</a><a class="" href="#6-契约">6. 契约</a><a class="lv3" href="#6-1-命令">6.1 命令</a><a class="lv3" href="#6-2-输出">6.2 输出</a><a class="lv3" href="#6-3-不确定态">6.3 不确定态</a><a class="" href="#7-影响面-本改造无-ai-提示词">7. 影响面（本改造无 AI 提示词）</a><a class="" href="#8-动作矩阵与安全闸门">8. 动作矩阵与安全闸门</a><a class="" href="#9-验收">9. 验收</a><a class="lv3" href="#9-1-必须命中的正例">9.1 必须命中的正例</a><a class="lv3" href="#9-2-必须保留的反例">9.2 必须保留的反例</a><a class="lv3" href="#9-3-量化阈值">9.3 量化阈值</a><a class="lv3" href="#9-4-复跑命令">9.4 复跑命令</a><a class="" href="#10-阶段">10. 阶段</a><a class="lv3" href="#10-1-当前进度">10.1 当前进度</a><a class="" href="#11-风险与待拍板项">11. 风险与待拍板项</a><a class="lv3" href="#11-1-对象状态台账">11.1 对象状态台账</a><a class="lv3" href="#11-2-文件级实现清单">11.2 文件级实现清单</a></nav>
 <main><hr>
 <p>status: design-draft version: 1.0 date: 2026-11-22 target: memgov 写入侧重复治理（改造 3） related: - docs/zh-eval-2026-11-22.md - docs/design-3-write-side-dedup.html</p>
 <hr>
@@ -105,6 +105,22 @@ memgov dedup-incremental --window-minutes 10 --json
 MEMGOV_ALLOW_WRITE=1 memgov dedup-incremental --window-minutes 10 --apply</code></pre>
 <h2 id="10-阶段">10. 阶段</h2>
 <div class="tablewrap"><table><thead><tr><th>阶段</th><th>内容</th><th>退出条件</th></tr></thead><tbody><tr><td>P1</td><td>只读：拉增量 + 生成候选 + 出报告</td><td>历史 3 天回放，误判率 ≤1%</td></tr><tr><td>P2</td><td>dry-run cron（每 5 分钟，只报告）</td><td>连续 3 天无异常告警</td></tr><tr><td>P3</td><td>小批量 apply（上限 10 条/轮）</td><td>一周无误判</td></tr><tr><td>P4</td><td>全量 apply（上限 50 条/轮）+ 定时</td><td>保持 30 天</td></tr></tbody></table></div>
+<h3 id="10-1-当前进度">10.1 当前进度（2026-11-23 15:40 CST，生产库 dxq）</h3>
+<div class="tablewrap"><table><thead><tr><th>阶段</th><th>状态</th><th>证据</th></tr></thead><tbody>
+<tr><td>P1</td><td><strong>完成</strong></td><td>6 轮回放（终点全库 12,226 条），428 条重复（3.5%），108 条抽样 0 误判（§9.3.1）</td></tr>
+<tr><td>P2</td><td><strong>第 1 天</strong>（2026-11-23 14:07 起）</td><td>cron <code>*/30</code>、窗口 10 分钟；截至 15:31 共 4 轮、197 条扫描、8 个待办动作、0 错误；applied=0（dry-run）</td></tr>
+<tr><td>P3</td><td><strong>未开始</strong></td><td>11-22 15:00–16:00 曾执行一次 apply，落 28 条（63 个动作去重后 28 个 memory_id：27 duplicate_of + 1 superseded_by），属计划外一次性，不计入 P3</td></tr>
+<tr><td>P4</td><td><strong>未开始</strong></td><td>cron 仍 <code>dry_run: true</code></td></tr>
+<tr><td>状态迁移（另一条线）</td><td>P1/P2 dry-run 已实现，P3 apply 未执行</td><td><code>docs/state-transition-design.md</code> 开头</td></tr>
+</tbody></table></div>
+<p>下一步（带门槛，按顺序）：</p>
+<ol>
+<li><strong>P2 跑满 3 天</strong>：2026-11-26 14:07 之后再复核 <code>runs/dedup-incremental-log.jsonl</code>，要求连续 3 天 0 错误、动作数可解释；未满不得开 P3。</li>
+<li><strong>开 P3 时必须显式 <code>--max-actions 10</code></strong>：wrapper 现在传 50，不显式压就重演 11-22 一轮 28 条的情况。</li>
+<li><strong>P3 一周无误判</strong>（每轮抽 20 条，确定性档与判官档分层）才进 P4；P4 保持 30 天。</li>
+<li><strong>偏差按实际值报</strong>：设计写 P2「每 5 分钟」，wrapper 实际 <code>*/30</code>；设计写 P3「≤10 条/轮」，首次实际 28 条。</li>
+</ol>
+<p>判「现在到 P 几」读三份实物，不读本文档：<code>runs/&lt;run&gt;.json</code> 的 <code>dry_run</code> / <code>ai.summary.applied</code>、<code>runs/ledger.jsonl</code> 的 <code>applied</code> 与 <code>memory_id</code>、<code>~/.hermes/scripts/memgov-dedup-incremental.sh</code> 的实际参数。</p>
 <h2 id="11-风险与待拍板项">11. 风险与待拍板项</h2>
 <div class="tablewrap"><table><thead><tr><th>序</th><th>决策点</th><th>推荐</th><th>影响面</th><th>回滚</th></tr></thead><tbody><tr><td>1</td><td>主方案选 B（增量清扫）还是 A（写入前拦截）</td><td><strong>B</strong></td><td>A 要改 Hermes 插件，影响每轮对话</td><td>A 未实施无需回滚</td></tr><tr><td>2</td><td>增量窗口</td><td>5 分钟跑一次、窗口 10 分钟</td><td>窗口越大越省调用，滞后越久</td><td>改 cron 频率</td></tr><tr><td>3</td><td>是否同时对 cos 0.85–0.92 启用 LLM 判官</td><td><strong>先关闭</strong></td><td>开启后成本翻倍，收益待测</td><td>关参数</td></tr><tr><td>4</td><td>是否用硬删 <code>DELETE /memories</code></td><td><strong>不用</strong></td><td>硬删不可回滚</td><td>—</td></tr><tr><td>5</td><td>每轮动作上限</td><td>50 条</td><td>越高越激进</td><td>改参数</td></tr><tr><td>6</td><td>签名约束是否强制</td><td><strong>强制</strong></td><td>不强制时 48% 的簇是误判</td><td>改 <code>--require-signature</code></td></tr></tbody></table></div>
 <h3 id="11-1-对象状态台账">11.1 对象状态台账</h3>

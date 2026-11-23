@@ -241,6 +241,25 @@ MEMGOV_ALLOW_WRITE=1 memgov dedup-incremental --window-minutes 10 --apply
 | P3 | 小批量 apply（上限 10 条/轮） | 一周无误判 |
 | P4 | 全量 apply（上限 50 条/轮）+ 定时 | 保持 30 天 |
 
+### 10.1 当前进度（2026-11-23 15:40 CST，生产库 dxq）
+
+| 阶段 | 状态 | 证据 |
+|---|---|---|
+| P1 | **完成** | 6 轮回放（终点全库 12,226 条），428 条重复（3.5%），108 条抽样 0 误判（§9.3.1） |
+| P2 | **第 1 天**（2026-11-23 14:07 起） | cron `*/30`、窗口 10 分钟；截至 15:31 共 4 轮、197 条扫描、8 个待办动作、0 错误；applied=0（dry-run） |
+| P3 | **未开始** | 11-22 15:00–16:00 曾执行一次 apply，落 28 条（63 个动作去重后 28 个 memory_id：27 duplicate_of + 1 superseded_by），属计划外一次性，不计入 P3 |
+| P4 | **未开始** | cron 仍 `dry_run: true` |
+| 状态迁移（另一条线） | P1/P2 dry-run 已实现，P3 apply 未执行 | `docs/state-transition-design.md` 开头 |
+
+下一步（带门槛，按顺序）：
+
+1. **P2 跑满 3 天**：2026-11-26 14:07 之后再复核 `runs/dedup-incremental-log.jsonl`，要求连续 3 天 0 错误、动作数可解释；未满不得开 P3。
+2. **开 P3 时必须显式 `--max-actions 10`**：wrapper 现在传 50，不显式压就重演 11-22 一轮 28 条的情况。
+3. **P3 一周无误判**（每轮抽 20 条，确定性档与判官档分层）才进 P4；P4 保持 30 天。
+4. **偏差按实际值报**：设计写 P2「每 5 分钟」，wrapper 实际 `*/30`；设计写 P3「≤10 条/轮」，首次实际 28 条。
+
+判「现在到 P 几」读三份实物，不读本文档：`runs/<run>.json` 的 `dry_run` / `ai.summary.applied`、`runs/ledger.jsonl` 的 `applied` 与 `memory_id`、`~/.hermes/scripts/memgov-dedup-incremental.sh` 的实际参数。
+
 ## 11. 风险与待拍板项
 
 | 序 | 决策点 | 推荐 | 影响面 | 回滚 |
