@@ -180,6 +180,27 @@ memgov dedup-incremental \
 | 遗忘验证 | failure_rate ≤10% | `memgov verify-forgetting <run>` |
 | 召回不退化 | MRR ≥ 0.94 | 每周 27 题 A/B |
 
+### 9.3.1 P1 验收记录（2026-11-22 至 11-23，生产库 dxq）
+
+| 轮次 | 窗口 | 扫描 | 动作 | 阈值/判官 | 抽样 | 误判 |
+|---|---|---|---|---|---|---|
+| 1 | 3 天 | 4,810 | 84 | 0.92、无判官 | 20 | 1 条（5%）→ 据此改阈值 |
+| 2 | 3 天 | — | SIGBUS 中断 | 0.95、判官 | — | 无结果 |
+| 3 | 1 天 | 1,193 | 52 | 0.95、判官 | 14 | 0 |
+| 4 | 3 天 | 4,640 | 121 | 0.95、判官 | 30 | **0** |
+
+第 4 轮完整计数:`duplicates 121 / uncertain 173 / signature_blocked 953 / errors 0`。
+
+抽样 30 条中 15 条是具体业务事实(协议 181 续签批次、AccountTypeEnum 取值、
+fat 的 T_PROTOCOL_CONFIG 缺 PROTOCOL_SUB_TYPE、removeNoUpdateReq 的 realName
+剔除坑、agent-front→mng-agent→Apollo 上线顺序),逐条比对 OLD 与 KEEP,全部
+保留等价或更精确的版本;其余 15 条是会话丢失/Multica 身份/看板地址等模板变体。
+
+误判率:**44 条抽样(第 3+4 轮)0 误判**。
+
+第 4 轮动作数(121)高于第 1 轮(84),原因是判官接管了 0.85–0.95 区间:
+第 1 轮被 0.92 阈值挡在门外的那批对,现在经三视角确认后可以执行,不是判定变松。
+
 ### 9.4 复跑命令
 
 ```bash
