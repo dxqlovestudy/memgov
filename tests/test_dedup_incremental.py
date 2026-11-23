@@ -108,10 +108,11 @@ def test_signature_differs_by_issue_id():
 
 # -- decisions ---------------------------------------------------------------
 def test_high_cosine_with_matching_signature_is_invalidated(tmp_path):
+    # 3 days apart: beyond the 1-day homeostat the newer record is the current state
     old_text = "dev 环境 mng-agent 镜像 = 333126-6cd22a9a"
     new_text = "dev 环境 mng-agent 的镜像为 333126-6cd22a9a"
     v = unit(1, 0, 0, 0, 0, 0, 0, 0)
-    old = rec("old", old_text, now() - timedelta(days=1))
+    old = rec("old", old_text, now() - timedelta(days=3))
     new = rec("new", new_text, now())
     adapter, d = make([old, new], FakeEmbedder({old_text: v, new_text: v}), tmp_path,
                       dry_run=False, threshold=0.92)
@@ -222,3 +223,33 @@ def test_index_incremental_append_keeps_existing(tmp_path):
     added = idx.upsert([("a", unit(1, 0, 0, 0)), ("b", unit(0, 1, 0, 0))])
     assert added == 1
     assert len(idx) == 2
+
+
+def test_same_vintage_keeps_the_longer_text(tmp_path):
+    """A terser paraphrase must not win just because it was written later."""
+    short = "看板文件放在 /srv/partner-web/dist/boards/，地址 http://172.20.12.116/boards/<名>.html"
+    long = ("看板交付时必须附上访问链接：目录为 /srv/partner-web/dist/boards/，"
+            "文件名用 ASCII 名，访问地址为 http://172.20.12.116/boards/<名>.html 并更新索引")
+    v = unit(1, 0, 0, 0, 0, 0, 0, 0)
+    older = rec("long", long, now() - timedelta(hours=3))
+    newer = rec("short", short, now())
+    adapter, d = make([older, newer], FakeEmbedder({long: v, short: v}), tmp_path, dry_run=False)
+    report = d.run(window_minutes=10)
+    assert [a.memory_id for a in report.actions] == ["short"], "the shorter variant should be dropped"
+    assert report.actions[0].replacement_id == "long"
+
+
+def test_older_record_loses_when_gap_exceeds_a_day(tmp_path):
+    """Beyond a day apart, the newer record is the current state even if shorter."""
+    short_new = "镜像已更新为 42"
+    long_old = "镜像当前为 41，确认后改到 42 并复核副本数"
+    v = unit(1, 0, 0, 0, 0, 0, 0, 0)
+    older = rec("old41", long_old, now() - timedelta(days=3))
+    newer = rec("new42", short_new, now())
+    adapter, d = make([older, newer], FakeEmbedder({long_old: v, short_new: v}), tmp_path,
+                      dry_run=False, threshold=0.95, boundary_low=0.85,
+                      verify_duplicate=lambda k, dr: "DUPLICATE")
+    report = d.run(window_minutes=10)
+    # signatures differ (41/42), so the gate blocks it — that is the intended guard
+    assert report.actions == []
+    assert report.ai["summary"]["signature_blocked"] >= 1

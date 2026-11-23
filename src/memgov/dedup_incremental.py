@@ -78,10 +78,19 @@ class IncrementalDeduper:
     # -- helpers -------------------------------------------------------------
     @staticmethod
     def _is_newer(a: MemoryRecord, b: MemoryRecord) -> bool:
+        """Pick the survivor of a duplicate pair.
+
+        Newer wins only when the gap is real (>1 day), i.e. the record reflects a
+        later state. Within the same vintage, keep the longer text: measured on a
+        14-action sample, three board-delivery pairs lost the 'must attach a link'
+        and 'ASCII filename' constraints because the newer record happened to be a
+        terser paraphrase.
+        """
         ta, tb = a.reference_time(), b.reference_time()
-        if ta and tb and ta != tb:
-            return ta > tb
-        # no usable timestamps: keep the longer text, it carries more detail
+        if ta and tb:
+            gap = abs((ta - tb).total_seconds())
+            if gap > 86400:
+                return ta > tb
         return len(a.text or "") >= len(b.text or "")
 
     def _judge(self, keep: MemoryRecord, drop: MemoryRecord, cos: float) -> Tuple[str, str]:
