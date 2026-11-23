@@ -257,7 +257,7 @@ MEMGOV_ALLOW_WRITE=1 memgov dedup-incremental --window-minutes 10 --apply
 2. **开 P3 时必须显式 `--max-actions 10`**：wrapper 现在传 50，不显式压就重演 11-22 一轮 28 条的情况。
 3. **P3 一周无误判**（每轮抽 20 条，确定性档与判官档分层）才进 P4；P4 保持 30 天。
 4. **偏差按实际值报**：设计写 P2「每 5 分钟」，wrapper 实际 `*/30`；设计写 P3「≤10 条/轮」，首次实际 28 条。
-5. **判官改为按天（2026-11-23 20:10 起）**：30 分钟一轮只做确定性去重（`--no-judge`，cos ≥0.95，秒级无 LLM，实测 21.7s/65 条）；0.85–0.95 的边界对交每天 **12:30** 的 `memgov-dedup-daily-judge.sh`（窗口 1440 分钟、`--max-actions 200`、三视角判官），job `2bf3a6cdcf11`。上实际（P3/P4）后只保留这一档：每天 12:00–13:30 之间触发一次，30 分钟的确定性轮停掉。判官缓存跨轮复用，同一对不重复计费。
+5. **判官节奏：P2 按轮、生产按天（2026-11-23 口径）**：P2 dry-run 期维持 30 分钟一轮、**每轮都跑判官**（0.85–0.95 交三视角判官），用来攒观测样本；转生产（P3/P4 apply）后停掉 30 分钟轮，只保留 `memgov-dedup-daily-judge.sh`（窗口 1440 分钟、`--max-actions 200`、三视角判官），每天 **12:30**（12:00–13:30 之间）触发一次，job `2bf3a6cdcf11` 已建但**当前暂停**，转生产时 resume。判官缓存跨轮复用，同一对不重复计费。
 6. **日报动作数按 memory_id 去重**：同一记忆会被 30 分钟轮和每日判官轮重复记到（dry-run 不失效，所以会重报），KPI 显示「发现重复 X 条（独立 Y）」。
 
 判「现在到 P 几」读三份实物，不读本文档：`runs/<run>.json` 的 `dry_run` / `ai.summary.applied`、`runs/ledger.jsonl` 的 `applied` 与 `memory_id`、`~/.hermes/scripts/memgov-dedup-incremental.sh` 的实际参数。
